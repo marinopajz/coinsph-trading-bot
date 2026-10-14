@@ -1,5 +1,6 @@
 package com.example.domain.exchange
 
+import com.example.data.model.CandleStick
 import com.example.data.model.CoinsBalance
 import com.example.data.model.CoinsSymbolInfo
 import com.example.data.model.MarketTicker
@@ -14,6 +15,12 @@ interface ExchangeClient {
     suspend fun getAvailableSymbols(): Result<List<CoinsSymbolInfo>>
 
     suspend fun getTicker(symbol: String): Result<MarketTicker>
+
+    suspend fun getKlines(
+        symbol: String,
+        interval: String = "5m",
+        limit: Int = 40
+    ): Result<List<CandleStick>>
 
     suspend fun submitOrder(
         symbol: String,

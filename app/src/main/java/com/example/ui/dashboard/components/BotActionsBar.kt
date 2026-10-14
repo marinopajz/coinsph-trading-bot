@@ -55,6 +55,7 @@ fun BotActionsBar(
     botState: BotState,
     tradingMode: TradingMode,
     isOperationInProgress: Boolean,
+    openPositionsCount: Int = 0,
     onStartBot: () -> Unit,
     onPauseBot: () -> Unit,
     onStopBot: () -> Unit,
@@ -62,6 +63,8 @@ fun BotActionsBar(
     onRequestEnableLiveTrading: () -> Unit,
     onSwitchToPaperTrading: () -> Unit,
     onCancelAllOrders: () -> Unit,
+    onManualBuy: () -> Unit = {},
+    onCloseAllPositions: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showEmergencyConfirm by remember { mutableStateOf(false) }
@@ -85,6 +88,46 @@ fun BotActionsBar(
                 letterSpacing = 1.sp,
                 fontSize = 10.sp
             )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Quick-Trade Action Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onManualBuy,
+                    enabled = !isOperationInProgress,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1E3A8A),
+                        contentColor = Color(0xFF93C5FD)
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .testTag("btn_quick_buy")
+                ) {
+                    Text("⚡ INSTANT BUY", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+
+                Button(
+                    onClick = onCloseAllPositions,
+                    enabled = !isOperationInProgress && openPositionsCount > 0,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = LossRed.copy(alpha = 0.25f),
+                        contentColor = LossRed
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .testTag("btn_close_all")
+                ) {
+                    Text("🔥 SELL ALL ($openPositionsCount)", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
 
             // Primary Row: Engine Controls

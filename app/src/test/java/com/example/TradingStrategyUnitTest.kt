@@ -117,6 +117,52 @@ class TradingStrategyUnitTest {
     }
 
     @Test
+    fun dcaStrategy_trailingTakeProfit_holdsWhenRisingAndTriggersOnPullback() {
+        val strategy = DcaStrategy()
+        val openPos = OpenPosition(
+            id = "pos_trailing",
+            symbol = "BTCPHP",
+            entryPrice = 5000000.0,
+            currentPrice = 5300000.0, // +6% gain (above 5% TP)
+            quantity = 0.0002,
+            amountInvested = 1000.0,
+            unrealizedPnl = 60.0,
+            pnlPercentage = 6.0,
+            entryTimestamp = System.currentTimeMillis() - 60000
+        )
+
+        val settingsTrailing = defaultSettings.copy(
+            takeProfitPercentage = 5.0,
+            trailingTakeProfitEnabled = true,
+            trailingStopPercentage = 1.0,
+            peakPrice = 5400000.0 // Peak reached +8%
+        )
+
+        // Case A: Price is at peak 5,400,000 (+8% gain). Drop from peak is 0%. Should HOLD.
+        val peakTicker = defaultTicker.copy(price = 5400000.0)
+        val holdSignal = strategy.evaluate(
+            settings = settingsTrailing,
+            currentTicker = peakTicker,
+            priceHistory = emptyList(),
+            openPositions = listOf(openPos),
+            allocatedCapital = 1000.0
+        )
+        assertEquals("Trailing TP should HOLD while price stays at peak", SignalAction.HOLD, holdSignal.action)
+
+        // Case B: Price drops from peak 5,400,000 to 5,300,000 (-1.85% drop >= 1% trailingStopPercentage). Should SELL.
+        val dropTicker = defaultTicker.copy(price = 5300000.0)
+        val sellSignal = strategy.evaluate(
+            settings = settingsTrailing,
+            currentTicker = dropTicker,
+            priceHistory = emptyList(),
+            openPositions = listOf(openPos),
+            allocatedCapital = 1000.0
+        )
+        assertEquals("Trailing TP should trigger SELL on pullback from peak", SignalAction.SELL, sellSignal.action)
+        assertTrue(sellSignal.reason.contains("Trailing Take Profit triggered"))
+    }
+
+    @Test
     fun rsiCalculation_oversold_triggersBuySignal() {
         val prices = mutableListOf<PricePoint>()
         var p = 5000000.0
@@ -179,5 +225,88 @@ class TradingStrategyUnitTest {
 
         assertTrue(result is RiskCheckResult.Rejected)
         assertTrue((result as RiskCheckResult.Rejected).reason.contains("Stale price rejected"))
+    }
+
+    @Test
+    fun riskManager_cooldown_onlyTriggersOnFilledBuyOrSell() {
+        val riskManager = RiskManager()
+        val signal = TradingSignal(SignalAction.BUY, "Test Buy", 1000.0, 5000000.0)
+        val now = System.currentTimeMillis()
+
+        // Log 1: Non-filled / blocked / failed log from 2 seconds ago
+        val blockedLog = TradeLog(
+            id = "log_1",
+            timestamp = now - 2000,
+            type = "RISK_GUARD",
+            symbol = "BTCPHP",
+            side = "BLOCKED",
+            price = 5000000.0,
+            quantity = 0.0,
+            amount = 0.0,
+            fee = 0.0,
+            feeCurrency = "PHP",
+            status = "REJECTED",
+            message = "Blocked by risk guard"
+        )
+
+        val failedLog = TradeLog(
+            id = "log_2",
+            timestamp = now - 1000,
+            type = "ERROR",
+            symbol = "BTCPHP",
+            side = "BUY",
+            price = 5000000.0,
+            quantity = 0.0,
+            amount = 1000.0,
+            fee = 0.0,
+            feeCurrency = "PHP",
+            status = "FAILED",
+            message = "Order failed"
+        )
+
+        val nonFilledLogs = listOf(failedLog, blockedLog)
+
+        val approvedResult = riskManager.validateOrder(
+            signal = signal,
+            settings = defaultSettings,
+            ticker = defaultTicker.copy(lastUpdated = now),
+            openPositions = emptyList(),
+            allocatedCapital = 0.0,
+            dailyRealizedLoss = 0.0,
+            recentTradeLogs = nonFilledLogs
+        )
+
+        assertTrue("Order should be Approved when recent logs are non-filled / blocked", approvedResult is RiskCheckResult.Approved)
+
+        // Log 2: Filled BUY log from 2 seconds ago
+        val filledBuyLog = TradeLog(
+            id = "log_3",
+            timestamp = now - 2000,
+            type = "MARKET",
+            symbol = "BTCPHP",
+            side = "BUY",
+            price = 5000000.0,
+            quantity = 0.0002,
+            amount = 1000.0,
+            fee = 1.0,
+            feeCurrency = "PHP",
+            status = "FILLED",
+            message = "Order filled"
+        )
+
+        val filledLogs = listOf(filledBuyLog) + nonFilledLogs
+
+        val rejectedResult = riskManager.validateOrder(
+            signal = signal,
+            settings = defaultSettings,
+            ticker = defaultTicker.copy(lastUpdated = now),
+            openPositions = emptyList(),
+            allocatedCapital = 0.0,
+            dailyRealizedLoss = 0.0,
+            recentTradeLogs = filledLogs
+        )
+
+        assertTrue("Order should be Rejected when recent log is a filled BUY", rejectedResult is RiskCheckResult.Rejected)
+        assertTrue((rejectedResult as RiskCheckResult.Rejected).reason.contains("Duplicate order cooldown active"))
     }
 }

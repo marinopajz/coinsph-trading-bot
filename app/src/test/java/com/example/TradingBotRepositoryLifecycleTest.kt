@@ -68,6 +68,17 @@ class TradingBotRepositoryLifecycleTest {
             )
         }
 
+        override suspend fun getKlines(
+            symbol: String,
+            interval: String,
+            limit: Int
+        ): Response<List<List<Any>>> {
+            val sampleKlines = listOf(
+                listOf(1700000000000L, "5000000.0", "5100000.0", "4950000.0", "5050000.0", "12.5", 1700000300000L)
+            )
+            return Response.success(sampleKlines)
+        }
+
         override suspend fun testOrder(
             apiKey: String, symbol: String, side: String, type: String,
             quantity: String?, quoteOrderAmount: String?, price: String?,
@@ -244,5 +255,228 @@ class TradingBotRepositoryLifecycleTest {
         assertEquals(2, portfolio.totalTrades)
         assertEquals(1, portfolio.winningTrades)
         assertEquals(50.0, portfolio.winRate, 0.01) // 1 win out of 2 trades = 50%
+    }
+
+    @Test
+    fun switchSymbol_clearsPriceHistoryAndSyncsPortfolioBalances() = runTest {
+        val fakeDao = FakeTradingDao()
+        fakeDao.savePaperBalance(PaperBalanceEntity("PHP", 50000.0))
+        fakeDao.savePaperBalance(PaperBalanceEntity("USDT", 1000.0))
+
+        val client = PaperTradingExchangeClient(
+            apiService = fakeApiService,
+            initialPhpBalance = 50000.0,
+            initialUsdtBalance = 1000.0,
+            tradingDao = fakeDao
+        )
+        val repo = TradingBotRepositoryImpl(
+            paperExchangeClient = client,
+            liveExchangeClient = client,
+            tradingDao = fakeDao,
+            coroutineScope = backgroundScope
+        )
+
+        testScheduler.runCurrent()
+
+        // Switch symbol from BTCPHP to BTCUSDT
+        val switchRes = repo.switchSymbol("BTCUSDT")
+        assertTrue("Switch symbol should succeed", switchRes.isSuccess)
+
+        val priceHistory = repo.priceHistoryFlow.first()
+        assertTrue("Price history should be cleared on symbol switch", priceHistory.isEmpty())
+
+        val settings = repo.botSettingsFlow.first()
+        assertEquals("BTCUSDT", settings.symbol)
+        assertEquals("USDT", settings.quoteCurrency)
+        assertEquals("BTC", settings.baseCurrency)
+
+        val portfolio = repo.portfolioFlow.first()
+        assertEquals(1000.0, portfolio.quoteBalance, 0.01)
+        assertEquals("USDT", portfolio.quoteCurrency)
+    }
+
+    @Test
+    fun closePosition_updatesPortfolioQuoteBalanceAccurately() = runTest {
+        val fakeDao = FakeTradingDao()
+        fakeDao.savePaperBalance(PaperBalanceEntity("PHP", 45000.0))
+        fakeDao.savePaperBalance(PaperBalanceEntity("BTC", 0.001))
+
+        val position = com.example.data.model.OpenPosition(
+            id = "pos_close_bal",
+            symbol = "BTCPHP",
+            side = "BUY",
+            entryPrice = 5000000.0,
+            currentPrice = 5000000.0,
+            quantity = 0.001,
+            amountInvested = 5005.0,
+            unrealizedPnl = 0.0,
+            pnlPercentage = 0.0,
+            entryTimestamp = System.currentTimeMillis()
+        )
+        fakeDao.insertOpenPosition(OpenPositionEntity.fromDomain(position))
+
+        val client = PaperTradingExchangeClient(
+            apiService = fakeApiService,
+            initialPhpBalance = 45000.0,
+            initialUsdtBalance = 1000.0,
+            tradingDao = fakeDao
+        )
+        val repo = TradingBotRepositoryImpl(
+            paperExchangeClient = client,
+            liveExchangeClient = client,
+            tradingDao = fakeDao,
+            coroutineScope = backgroundScope
+        )
+
+        testScheduler.runCurrent()
+
+        val closeRes = repo.closePosition("pos_close_bal")
+        assertTrue("Close position should succeed", closeRes.isSuccess)
+
+        // After close, paper client balance becomes 45000 + 4995 = 49995 PHP
+        val portfolio = repo.portfolioFlow.first()
+        assertEquals(49995.0, portfolio.quoteBalance, 0.01)
+    }
+
+    @Test
+    fun switchSymbol_withUsdcPair_detectsUsdcQuoteCurrency() = runTest {
+        val fakeDao = FakeTradingDao()
+        val client = PaperTradingExchangeClient(
+            apiService = fakeApiService,
+            initialPhpBalance = 50000.0,
+            initialUsdtBalance = 1000.0,
+            tradingDao = fakeDao
+        )
+        val repo = TradingBotRepositoryImpl(
+            paperExchangeClient = client,
+            liveExchangeClient = client,
+            tradingDao = fakeDao,
+            coroutineScope = backgroundScope
+        )
+
+        testScheduler.runCurrent()
+
+        val switchRes = repo.switchSymbol("BTCUSDC")
+        assertTrue("Switch to BTCUSDC should succeed", switchRes.isSuccess)
+
+        val settings = repo.botSettingsFlow.first()
+        assertEquals("BTCUSDC", settings.symbol)
+        assertEquals("USDC", settings.quoteCurrency)
+        assertEquals("BTC", settings.baseCurrency)
+    }
+
+    @Test
+    fun setTradingMode_separatesPaperAndLivePnlAndCounters() = runTest {
+        val fakeDao = FakeTradingDao()
+        fakeDao.savePaperBalance(PaperBalanceEntity("PHP", 50000.0))
+
+        val paperLog = TradeLogEntity(
+            id = "log_paper_1",
+            timestamp = System.currentTimeMillis(),
+            type = "MARKET",
+            symbol = "BTCPHP",
+            side = "SELL",
+            price = 5000000.0,
+            quantity = 0.001,
+            amount = 5000.0,
+            fee = 5.0,
+            feeCurrency = "PHP",
+            realizedPnl = -100.0,
+            status = "FILLED",
+            orderId = "ord_p1",
+            message = "Paper sell",
+            tradingMode = com.example.data.model.TradingMode.PAPER
+        )
+        fakeDao.insertTradeLog(paperLog)
+
+        val client = PaperTradingExchangeClient(
+            apiService = fakeApiService,
+            initialPhpBalance = 50000.0,
+            initialUsdtBalance = 1000.0,
+            tradingDao = fakeDao
+        )
+        val repo = TradingBotRepositoryImpl(
+            paperExchangeClient = client,
+            liveExchangeClient = client,
+            tradingDao = fakeDao,
+            coroutineScope = backgroundScope
+        )
+
+        testScheduler.runCurrent()
+
+        val paperPortfolio = repo.portfolioFlow.first()
+        assertEquals(-100.0, paperPortfolio.totalRealizedPnl, 0.01)
+        assertEquals(1, paperPortfolio.totalTrades)
+
+        val modeRes = repo.setTradingMode(com.example.data.model.TradingMode.LIVE)
+        assertTrue("Set trading mode to LIVE should succeed", modeRes.isSuccess)
+
+        val livePortfolio = repo.portfolioFlow.first()
+        assertEquals("Live mode portfolio should reset realized PnL from paper logs", 0.0, livePortfolio.totalRealizedPnl, 0.01)
+        assertEquals("Live mode portfolio should have 0 total trades", 0, livePortfolio.totalTrades)
+    }
+
+    @Test
+    fun setChartInterval_updatesIntervalFlowAndFetchesKlines() = runTest {
+        val fakeDao = FakeTradingDao()
+        val client = PaperTradingExchangeClient(
+            apiService = fakeApiService,
+            initialPhpBalance = 50000.0,
+            initialUsdtBalance = 1000.0,
+            tradingDao = fakeDao
+        )
+        val repo = TradingBotRepositoryImpl(
+            paperExchangeClient = client,
+            liveExchangeClient = client,
+            tradingDao = fakeDao,
+            coroutineScope = backgroundScope
+        )
+
+        testScheduler.runCurrent()
+
+        repo.setChartInterval(com.example.data.model.ChartInterval.FIFTEEN_MIN)
+        testScheduler.runCurrent()
+
+        val selectedInterval = repo.selectedIntervalFlow.first()
+        assertEquals(com.example.data.model.ChartInterval.FIFTEEN_MIN, selectedInterval)
+
+        val candles = repo.candlesFlow.first()
+        assertTrue("Candles flow should contain parsed candlestick data", candles.isNotEmpty())
+    }
+
+    @Test
+    fun manualBuyNow_and_closeAllPositions_executeAccurately() = runTest {
+        val fakeDao = FakeTradingDao()
+        fakeDao.savePaperBalance(PaperBalanceEntity("PHP", 50000.0))
+
+        val client = PaperTradingExchangeClient(
+            apiService = fakeApiService,
+            initialPhpBalance = 50000.0,
+            initialUsdtBalance = 1000.0,
+            tradingDao = fakeDao
+        )
+        val repo = TradingBotRepositoryImpl(
+            paperExchangeClient = client,
+            liveExchangeClient = client,
+            tradingDao = fakeDao,
+            coroutineScope = backgroundScope
+        )
+
+        testScheduler.runCurrent()
+
+        // 1. Manual Buy
+        val buyRes = repo.manualBuyNow()
+        assertTrue("manualBuyNow should succeed", buyRes.isSuccess)
+
+        val positions = repo.openPositionsFlow.first()
+        assertEquals(1, positions.size)
+        assertEquals("BTCPHP", positions.first().symbol)
+
+        // 2. Close All Positions
+        val closeAllRes = repo.closeAllPositions()
+        assertTrue("closeAllPositions should succeed", closeAllRes.isSuccess)
+
+        val updatedPositions = repo.openPositionsFlow.first()
+        assertTrue("Open positions should be empty after closeAllPositions", updatedPositions.isEmpty())
     }
 }

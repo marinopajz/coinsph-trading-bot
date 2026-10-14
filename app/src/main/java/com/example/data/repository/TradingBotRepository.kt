@@ -12,10 +12,13 @@ import com.example.data.model.CoinsSymbolInfo
 import com.example.data.model.MarketTicker
 import com.example.data.model.OpenPosition
 import com.example.data.model.PortfolioSnapshot
+import com.example.data.model.CandleStick
+import com.example.data.model.ChartInterval
 import com.example.data.model.PricePoint
 import com.example.data.model.StrategyType
 import com.example.data.model.TradeLog
 import com.example.data.model.TradingMode
+import com.example.domain.exchange.CoinsPhExchangeClient
 import com.example.domain.exchange.ExchangeClient
 import com.example.domain.exchange.PaperTradingExchangeClient
 import com.example.domain.risk.RiskCheckResult
@@ -44,8 +47,11 @@ interface TradingBotRepository {
     val tradeLogsFlow: Flow<List<TradeLog>>
     val marketTickerFlow: Flow<MarketTicker?>
     val priceHistoryFlow: Flow<List<PricePoint>>
+    val candlesFlow: Flow<List<CandleStick>>
+    val selectedIntervalFlow: Flow<ChartInterval>
     val openPositionsFlow: Flow<List<OpenPosition>>
 
+    suspend fun setChartInterval(interval: ChartInterval)
     suspend fun updateSettings(settings: BotSettings): Result<Unit>
     suspend fun startBot(): Result<Unit>
     suspend fun pauseBot(): Result<Unit>
@@ -57,6 +63,10 @@ interface TradingBotRepository {
     suspend fun fetchLatestTicker(symbol: String): Result<MarketTicker>
     suspend fun closePosition(positionId: String): Result<Unit>
     suspend fun cancelAllPendingOrders(): Result<Unit>
+    suspend fun manualBuyNow(): Result<Unit>
+    suspend fun closeAllPositions(): Result<Unit>
+    suspend fun configureLiveCredentials(apiKey: String, secretKey: String): Result<Unit>
+    fun hasLiveCredentials(): Boolean
     fun onAppForegrounded()
     fun onAppBackgrounded()
 }
@@ -65,8 +75,12 @@ class TradingBotRepositoryImpl(
     private val paperExchangeClient: PaperTradingExchangeClient,
     private val liveExchangeClient: ExchangeClient,
     private val tradingDao: TradingDao? = null,
+    private val sharedPreferences: android.content.SharedPreferences? = null,
+    private val context: android.content.Context? = null,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) : TradingBotRepository {
+
+    private val notificationManager = if (context != null) com.example.util.BotNotificationManager(context) else null
 
     private val riskManager = RiskManager()
     private val dcaStrategy = DcaStrategy()
@@ -99,6 +113,12 @@ class TradingBotRepositoryImpl(
     private val _priceHistory = MutableStateFlow<List<PricePoint>>(emptyList())
     override val priceHistoryFlow: Flow<List<PricePoint>> = _priceHistory.asStateFlow()
 
+    private val _candles = MutableStateFlow<List<CandleStick>>(emptyList())
+    override val candlesFlow: Flow<List<CandleStick>> = _candles.asStateFlow()
+
+    private val _selectedInterval = MutableStateFlow(ChartInterval.FIVE_MIN)
+    override val selectedIntervalFlow: Flow<ChartInterval> = _selectedInterval.asStateFlow()
+
     private val _openPositions = MutableStateFlow<List<OpenPosition>>(emptyList())
     override val openPositionsFlow: Flow<List<OpenPosition>> = _openPositions.asStateFlow()
 
@@ -107,11 +127,29 @@ class TradingBotRepositoryImpl(
     private var isForegrounded = true
 
     init {
+        sharedPreferences?.let { prefs ->
+            val key = prefs.getString("coins_api_key", "") ?: ""
+            val secret = prefs.getString("coins_secret_key", "") ?: ""
+            if (key.isNotBlank() && secret.isNotBlank() && liveExchangeClient is CoinsPhExchangeClient) {
+                liveExchangeClient.setCredentials(key, secret)
+            }
+        }
         coroutineScope.launch {
             loadStateFromDatabase()
+            fetchKlinesForActiveSymbol()
             if (isForegrounded) {
                 startTickerPolling(_botSettings.value.symbol)
             }
+        }
+    }
+
+    private suspend fun fetchKlinesForActiveSymbol() {
+        val client = getActiveExchangeClient()
+        val symbol = _botSettings.value.symbol
+        val interval = _selectedInterval.value.code
+        val res = client.getKlines(symbol, interval, 40)
+        res.onSuccess { klines ->
+            _candles.value = klines
         }
     }
 
@@ -137,8 +175,28 @@ class TradingBotRepositoryImpl(
             val dbLogs = dao.getAllTradeLogs().map { it.toDomain() }
             if (dbLogs.isNotEmpty()) {
                 _tradeLogs.value = dbLogs
+
+                val currentMode = _botSettings.value.tradingMode
+                val closedSellLogs = _tradeLogs.value.filter {
+                    it.tradingMode == currentMode &&
+                    it.side.equals("SELL", ignoreCase = true) &&
+                    it.status.equals("FILLED", ignoreCase = true)
+                }
+                val totalRealizedPnl = closedSellLogs.sumOf { it.realizedPnl }
+                val totalTrades = closedSellLogs.size
+                val winningTrades = closedSellLogs.count { it.realizedPnl > 0.0 }
+                val winRate = if (totalTrades > 0) (winningTrades.toDouble() / totalTrades) * 100.0 else 0.0
+
+                _portfolio.value = _portfolio.value.copy(
+                    totalRealizedPnl = totalRealizedPnl,
+                    dailyPnl = totalRealizedPnl,
+                    totalTrades = totalTrades,
+                    winningTrades = winningTrades,
+                    winRate = winRate
+                )
             }
         }
+        syncPortfolioBalances()
     }
 
     override fun onAppForegrounded() {
@@ -148,8 +206,10 @@ class TradingBotRepositoryImpl(
 
     override fun onAppBackgrounded() {
         isForegrounded = false
-        tickerPollingJob?.cancel()
-        tickerPollingJob = null
+        if (_botStatus.value.state != BotState.RUNNING) {
+            tickerPollingJob?.cancel()
+            tickerPollingJob = null
+        }
     }
 
     private fun getActiveExchangeClient(): ExchangeClient {
@@ -164,6 +224,7 @@ class TradingBotRepositoryImpl(
         if (!isForegrounded) return
         tickerPollingJob?.cancel()
         tickerPollingJob = coroutineScope.launch {
+            var pollCount = 0
             while (isActive) {
                 try {
                     val client = getActiveExchangeClient()
@@ -177,10 +238,33 @@ class TradingBotRepositoryImpl(
                         }
                         _priceHistory.value = currentHistory
 
+                        // Real-time update of last candle
+                        val currentCandles = _candles.value.toMutableList()
+                        if (currentCandles.isNotEmpty()) {
+                            val lastIndex = currentCandles.size - 1
+                            val last = currentCandles[lastIndex]
+                            val newHigh = maxOf(last.high, ticker.price)
+                            val newLow = if (last.low > 0.0) minOf(last.low, ticker.price) else ticker.price
+                            currentCandles[lastIndex] = last.copy(
+                                close = ticker.price,
+                                high = newHigh,
+                                low = newLow
+                            )
+                            _candles.value = currentCandles
+                        }
+
                         // Update unrealized PnL of open positions
                         updateOpenPositionsPnl(ticker.price)
                     }.onFailure { err ->
                         println("DEBUG getTicker failure: ${err.message}")
+                    }
+
+                    pollCount++
+                    if (pollCount % 3 == 0) {
+                        fetchKlinesForActiveSymbol()
+                    }
+                    if (pollCount % 5 == 0) {
+                        syncPortfolioBalances()
                     }
                 } catch (e: Exception) {
                     println("DEBUG startTickerPolling exception: ${e.message}")
@@ -201,15 +285,33 @@ class TradingBotRepositoryImpl(
         tradingDao?.saveBotSettings(BotSettingsEntity.fromDomain(updated))
 
         if (previousSymbol != settings.symbol) {
+            _priceHistory.value = emptyList()
+            _marketTicker.value = null
             startTickerPolling(settings.symbol)
         }
+        syncPortfolioBalances()
         return Result.success(Unit)
     }
 
+    override suspend fun setChartInterval(interval: ChartInterval) {
+        _selectedInterval.value = interval
+        fetchKlinesForActiveSymbol()
+    }
+
     override suspend fun switchSymbol(symbol: String): Result<Unit> {
-        val quote = if (symbol.uppercase().endsWith("USDT")) "USDT" else "PHP"
-        val base = symbol.uppercase().removeSuffix(quote)
+        val upper = symbol.uppercase()
+        val quote = when {
+            upper.endsWith("USDT") -> "USDT"
+            upper.endsWith("USDC") -> "USDC"
+            else -> "PHP"
+        }
+        val base = upper.removeSuffix(quote)
         val current = _botSettings.value
+        if (current.symbol != symbol) {
+            _priceHistory.value = emptyList()
+            _marketTicker.value = null
+            _candles.value = emptyList()
+        }
         updateSettings(
             current.copy(
                 symbol = symbol,
@@ -217,6 +319,8 @@ class TradingBotRepositoryImpl(
                 baseCurrency = base
             )
         )
+        fetchKlinesForActiveSymbol()
+        syncPortfolioBalances()
         return Result.success(Unit)
     }
 
@@ -297,14 +401,58 @@ class TradingBotRepositoryImpl(
             // Safety check before setting mode
             val check = liveExchangeClient.checkConnectivity()
             if (check.isFailure) {
+                val reason = check.exceptionOrNull()?.message ?: "Cannot enable live mode without verified credentials."
                 return Result.failure(
-                    IllegalStateException("Live trading backend check failed: Cannot enable live mode without verified credentials.")
+                    IllegalStateException("Live trading check failed: $reason")
                 )
             }
         }
-        val updated = _botSettings.value.copy(tradingMode = mode)
-        updateSettings(updated)
+        val updatedSettings = _botSettings.value.copy(tradingMode = mode)
+        updateSettings(updatedSettings)
+
+        // Separate Paper vs. Live PnL & Trade Counters
+        val closedSellLogs = _tradeLogs.value.filter {
+            it.tradingMode == mode &&
+            it.side.equals("SELL", ignoreCase = true) &&
+            it.status.equals("FILLED", ignoreCase = true)
+        }
+        val totalRealizedPnl = closedSellLogs.sumOf { it.realizedPnl }
+        val totalTrades = closedSellLogs.size
+        val winningTrades = closedSellLogs.count { it.realizedPnl > 0.0 }
+        val winRate = if (totalTrades > 0) (winningTrades.toDouble() / totalTrades) * 100.0 else 0.0
+        val allocatedCapital = _openPositions.value.sumOf { it.amountInvested }
+
+        val updatedPort = _portfolio.value.copy(
+            totalRealizedPnl = totalRealizedPnl,
+            dailyPnl = totalRealizedPnl,
+            totalTrades = totalTrades,
+            winningTrades = winningTrades,
+            winRate = winRate,
+            allocatedCapital = allocatedCapital
+        )
+        _portfolio.value = updatedPort
+        tradingDao?.savePortfolioSnapshot(PortfolioSnapshotEntity.fromDomain(updatedPort))
+
+        syncPortfolioBalances()
         return Result.success(Unit)
+    }
+
+    override suspend fun configureLiveCredentials(apiKey: String, secretKey: String): Result<Unit> {
+        if (liveExchangeClient is CoinsPhExchangeClient) {
+            liveExchangeClient.setCredentials(apiKey, secretKey)
+        }
+        sharedPreferences?.edit()?.apply {
+            putString("coins_api_key", apiKey)
+            putString("coins_secret_key", secretKey)
+            apply()
+        }
+        return Result.success(Unit)
+    }
+
+    override fun hasLiveCredentials(): Boolean {
+        return if (liveExchangeClient is CoinsPhExchangeClient) {
+            liveExchangeClient.hasCredentials()
+        } else false
     }
 
     override suspend fun getAvailableSymbols(): Result<List<CoinsSymbolInfo>> {
@@ -363,6 +511,7 @@ class TradingBotRepositoryImpl(
                 message = String.format("Closed position #%s: Realized PnL: %+.2f %s", positionId.take(6), pnl, _botSettings.value.quoteCurrency)
             )
             addTradeLog(log)
+            syncPortfolioBalances()
             Unit
         }
     }
@@ -527,6 +676,7 @@ class TradingBotRepositoryImpl(
                 openPositionsCount = updatedPositions.size,
                 lastCheckTime = System.currentTimeMillis()
             )
+            syncPortfolioBalances()
         }.onFailure { err ->
             addTradeLog(
                 TradeLog(
@@ -599,10 +749,13 @@ class TradingBotRepositoryImpl(
             )
             addTradeLog(log)
 
+            _botSettings.value = _botSettings.value.copy(peakPrice = 0.0)
+
             _botStatus.value = _botStatus.value.copy(
                 openPositionsCount = 0,
                 lastCheckTime = System.currentTimeMillis()
             )
+            syncPortfolioBalances()
         }.onFailure { err ->
             addTradeLog(
                 TradeLog(
@@ -625,7 +778,12 @@ class TradingBotRepositoryImpl(
 
     private fun updateOpenPositionsPnl(currentPrice: Double) {
         val positions = _openPositions.value
-        if (positions.isEmpty()) return
+        if (positions.isEmpty()) {
+            if (_botSettings.value.peakPrice != 0.0) {
+                _botSettings.value = _botSettings.value.copy(peakPrice = 0.0)
+            }
+            return
+        }
 
         val updated = positions.map { pos ->
             val pnl = (currentPrice - pos.entryPrice) * pos.quantity
@@ -640,6 +798,73 @@ class TradingBotRepositoryImpl(
 
         val totalUnrealized = updated.sumOf { it.unrealizedPnl }
         _portfolio.value = _portfolio.value.copy(unrealizedPnl = totalUnrealized)
+
+        val settings = _botSettings.value
+        if (settings.trailingTakeProfitEnabled) {
+            val totalQty = updated.sumOf { it.quantity }
+            val totalCost = updated.sumOf { it.amountInvested }
+            if (totalQty > 0.0 && totalCost > 0.0) {
+                val avgEntry = totalCost / totalQty
+                val profitPct = ((currentPrice - avgEntry) / avgEntry) * 100.0
+                if (profitPct >= settings.takeProfitPercentage) {
+                    val newPeak = maxOf(settings.peakPrice, currentPrice)
+                    if (newPeak != settings.peakPrice) {
+                        _botSettings.value = settings.copy(peakPrice = newPeak)
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun syncPortfolioBalances() {
+        val client = getActiveExchangeClient()
+        val balancesRes = client.getBalances()
+        balancesRes.onSuccess { balances ->
+            val quoteCurr = _botSettings.value.quoteCurrency
+            val baseCurr = _botSettings.value.baseCurrency
+            val quoteBal = balances.find { it.asset.equals(quoteCurr, ignoreCase = true) }?.free?.toDoubleOrNull()
+                ?: _portfolio.value.quoteBalance
+            val baseBal = balances.find { it.asset.equals(baseCurr, ignoreCase = true) }?.free?.toDoubleOrNull()
+                ?: _portfolio.value.baseBalance
+            val updatedPort = _portfolio.value.copy(
+                quoteBalance = quoteBal,
+                baseBalance = baseBal,
+                quoteCurrency = quoteCurr
+            )
+            _portfolio.value = updatedPort
+            tradingDao?.savePortfolioSnapshot(PortfolioSnapshotEntity.fromDomain(updatedPort))
+        }
+    }
+
+    override suspend fun manualBuyNow(): Result<Unit> {
+        val ticker = _marketTicker.value ?: fetchLatestTicker(_botSettings.value.symbol).getOrNull()
+            ?: return Result.failure(IllegalStateException("Market data unavailable"))
+
+        val signal = TradingSignal(
+            action = SignalAction.BUY,
+            reason = "Manual Quick Buy executed by user",
+            suggestedAmount = _botSettings.value.orderAmount,
+            suggestedPrice = ticker.price
+        )
+        executeBuyOrder(signal, _botSettings.value, ticker)
+        return Result.success(Unit)
+    }
+
+    override suspend fun closeAllPositions(): Result<Unit> {
+        if (_openPositions.value.isEmpty()) {
+            return Result.failure(IllegalStateException("No open positions to close"))
+        }
+        val ticker = _marketTicker.value ?: fetchLatestTicker(_botSettings.value.symbol).getOrNull()
+            ?: return Result.failure(IllegalStateException("Market data unavailable"))
+
+        val signal = TradingSignal(
+            action = SignalAction.SELL,
+            reason = "Manual Close All / Panic Sell executed by user",
+            suggestedPrice = ticker.price
+        )
+        executeSellOrder(signal, _botSettings.value, ticker)
+        _botSettings.value = _botSettings.value.copy(peakPrice = 0.0)
+        return Result.success(Unit)
     }
 
     private suspend fun addTradeLog(log: TradeLog) {
@@ -650,5 +875,9 @@ class TradingBotRepositoryImpl(
         }
         _tradeLogs.value = current
         tradingDao?.insertTradeLog(TradeLogEntity.fromDomain(log))
+
+        if (log.status == "FILLED" || log.status == "EXECUTED") {
+            notificationManager?.notifyTradeExecuted(log)
+        }
     }
 }

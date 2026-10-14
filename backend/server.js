@@ -609,12 +609,12 @@ async function runAutonomousEngineCycle() {
         if (signal.action === 'BUY') {
           const orderAmount = signal.suggestedAmount || settings.orderAmount || 500.0;
           const fee = orderAmount * feeRate;
-          const execQty = (orderAmount - fee) / currentPrice;
+          const execQty = orderAmount / currentPrice;
+          const totalCost = orderAmount + fee;
 
-          if (portfolio.quoteBalance >= (orderAmount + fee)) {
-            portfolio.quoteBalance -= (orderAmount + fee);
-            portfolio.allocatedCapital += orderAmount;
-            portfolio.totalTrades = (portfolio.totalTrades || 0) + 1;
+          if (portfolio.quoteBalance >= totalCost) {
+            portfolio.quoteBalance -= totalCost;
+            portfolio.allocatedCapital += totalCost;
 
             await positionsRef.add({
               symbol,
@@ -622,7 +622,7 @@ async function runAutonomousEngineCycle() {
               entryPrice: currentPrice,
               currentPrice,
               quantity: execQty,
-              amountInvested: orderAmount,
+              amountInvested: totalCost,
               entryTimestamp: Date.now()
             });
 
@@ -656,6 +656,8 @@ async function runAutonomousEngineCycle() {
           portfolio.totalRealizedPnl = (portfolio.totalRealizedPnl || 0.0) + realizedPnl;
           portfolio.dailyPnl = (portfolio.dailyPnl || 0.0) + realizedPnl;
           portfolio.totalTrades = (portfolio.totalTrades || 0) + 1;
+          portfolio.winningTrades = (portfolio.winningTrades || 0) + (realizedPnl > 0 ? 1 : 0);
+          portfolio.winRate = portfolio.totalTrades > 0 ? (portfolio.winningTrades / portfolio.totalTrades) * 100.0 : 0.0;
 
           // Clear open positions
           for (const pos of openPositions) {

@@ -54,17 +54,27 @@ fun StrategyControlsCard(
     onStopLossChanged: (Double) -> Unit,
     onMaxCapitalChanged: (Double) -> Unit,
     onMaxDailyLossChanged: (Double) -> Unit,
+    onRsiPeriodChanged: (Int) -> Unit = {},
+    onGridLevelsChanged: (Int) -> Unit = {},
+    onGridLowerPriceChanged: (Double) -> Unit = {},
+    onGridUpperPriceChanged: (Double) -> Unit = {},
+    onTrailingTakeProfitToggled: (Boolean) -> Unit = {},
+    onTrailingStopPercentageChanged: (Double) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val strategies = listOf(StrategyType.DCA, StrategyType.RSI_SWING, StrategyType.GRID)
     val selectedIndex = strategies.indexOf(settings.strategyType).coerceAtLeast(0)
 
-    var orderAmountText by remember(settings.orderAmount) { mutableStateOf(settings.orderAmount.toString()) }
-    var dipTriggerText by remember(settings.dipTriggerPercentage) { mutableStateOf(settings.dipTriggerPercentage.toString()) }
-    var takeProfitText by remember(settings.takeProfitPercentage) { mutableStateOf(settings.takeProfitPercentage.toString()) }
-    var stopLossText by remember(settings.stopLossPercentage) { mutableStateOf(settings.stopLossPercentage.toString()) }
-    var maxCapitalText by remember(settings.maxCapital) { mutableStateOf(settings.maxCapital.toString()) }
-    var maxDailyLossText by remember(settings.maxDailyLoss) { mutableStateOf(settings.maxDailyLoss.toString()) }
+    var orderAmountText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.orderAmount.toString()) }
+    var dipTriggerText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.dipTriggerPercentage.toString()) }
+    var rsiPeriodText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.rsiPeriod.toString()) }
+    var gridLevelsText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.gridLevels.toString()) }
+    var gridLowerPriceText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.gridLowerPrice.toString()) }
+    var gridUpperPriceText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.gridUpperPrice.toString()) }
+    var takeProfitText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.takeProfitPercentage.toString()) }
+    var stopLossText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.stopLossPercentage.toString()) }
+    var maxCapitalText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.maxCapital.toString()) }
+    var maxDailyLossText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.maxDailyLoss.toString()) }
 
     Card(
         modifier = modifier
@@ -143,7 +153,7 @@ fun StrategyControlsCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Row 1: Order Amount & Dip Trigger (or Grid/RSI params)
+            // Row 1: Order Amount & Strategy Specific Input
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -168,25 +178,120 @@ fun StrategyControlsCard(
                         .testTag("input_order_amount")
                 )
 
-                OutlinedTextField(
-                    value = dipTriggerText,
-                    onValueChange = {
-                        dipTriggerText = it
-                        it.toDoubleOrNull()?.let { dip -> onDipTriggerChanged(dip) }
-                    },
-                    label = { Text("Dip Trigger (%)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = CoinsEmerald,
-                        unfocusedBorderColor = Color(0xFF263246),
-                        focusedLabelColor = CoinsEmerald,
-                        unfocusedLabelColor = TextMuted
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("input_dip_trigger")
-                )
+                when (settings.strategyType) {
+                    StrategyType.DCA -> {
+                        OutlinedTextField(
+                            value = dipTriggerText,
+                            onValueChange = {
+                                dipTriggerText = it
+                                it.toDoubleOrNull()?.let { dip -> onDipTriggerChanged(dip) }
+                            },
+                            label = { Text("Dip Trigger (%)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CoinsEmerald,
+                                unfocusedBorderColor = Color(0xFF263246),
+                                focusedLabelColor = CoinsEmerald,
+                                unfocusedLabelColor = TextMuted
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("input_dip_trigger")
+                        )
+                    }
+                    StrategyType.RSI_SWING -> {
+                        OutlinedTextField(
+                            value = rsiPeriodText,
+                            onValueChange = {
+                                rsiPeriodText = it
+                                it.toIntOrNull()?.let { period -> onRsiPeriodChanged(period) }
+                            },
+                            label = { Text("RSI Period") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CoinsEmerald,
+                                unfocusedBorderColor = Color(0xFF263246),
+                                focusedLabelColor = CoinsEmerald,
+                                unfocusedLabelColor = TextMuted
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("input_rsi_period")
+                        )
+                    }
+                    StrategyType.GRID -> {
+                        OutlinedTextField(
+                            value = gridLevelsText,
+                            onValueChange = {
+                                gridLevelsText = it
+                                it.toIntOrNull()?.let { levels -> onGridLevelsChanged(levels) }
+                            },
+                            label = { Text("Grid Levels") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CoinsEmerald,
+                                unfocusedBorderColor = Color(0xFF263246),
+                                focusedLabelColor = CoinsEmerald,
+                                unfocusedLabelColor = TextMuted
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("input_grid_levels")
+                        )
+                    }
+                }
+            }
+
+            // Additional Row for GRID strategy: Lower Price & Upper Price
+            if (settings.strategyType == StrategyType.GRID) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = gridLowerPriceText,
+                        onValueChange = {
+                            gridLowerPriceText = it
+                            it.toDoubleOrNull()?.let { price -> onGridLowerPriceChanged(price) }
+                        },
+                        label = { Text("Grid Lower (${settings.quoteCurrency})") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CoinsEmerald,
+                            unfocusedBorderColor = Color(0xFF263246),
+                            focusedLabelColor = CoinsEmerald,
+                            unfocusedLabelColor = TextMuted
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("input_grid_lower_price")
+                    )
+
+                    OutlinedTextField(
+                        value = gridUpperPriceText,
+                        onValueChange = {
+                            gridUpperPriceText = it
+                            it.toDoubleOrNull()?.let { price -> onGridUpperPriceChanged(price) }
+                        },
+                        label = { Text("Grid Upper (${settings.quoteCurrency})") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CoinsEmerald,
+                            unfocusedBorderColor = Color(0xFF263246),
+                            focusedLabelColor = CoinsEmerald,
+                            unfocusedLabelColor = TextMuted
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("input_grid_upper_price")
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -235,6 +340,59 @@ fun StrategyControlsCard(
                         .weight(1f)
                         .testTag("input_stop_loss")
                 )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Trailing Take Profit Control Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF141D2A), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Switch(
+                        checked = settings.trailingTakeProfitEnabled,
+                        onCheckedChange = { onTrailingTakeProfitToggled(it) },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = CoinsEmerald
+                        ),
+                        modifier = Modifier.testTag("switch_trailing_tp")
+                    )
+                    Text(
+                        text = "Trailing Take Profit",
+                        color = TextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+
+                if (settings.trailingTakeProfitEnabled) {
+                    var trailingStopText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.trailingStopPercentage.toString()) }
+                    OutlinedTextField(
+                        value = trailingStopText,
+                        onValueChange = {
+                            trailingStopText = it
+                            it.toDoubleOrNull()?.let { pct -> onTrailingStopPercentageChanged(pct) }
+                        },
+                        label = { Text("Trail Callback (%)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CoinsEmerald,
+                            unfocusedBorderColor = Color(0xFF263246),
+                            focusedLabelColor = CoinsEmerald,
+                            unfocusedLabelColor = TextMuted
+                        ),
+                        modifier = Modifier
+                            .testTag("input_trailing_stop_pct")
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))

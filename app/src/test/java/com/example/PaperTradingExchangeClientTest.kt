@@ -99,6 +99,17 @@ class FakeCoinsPhApiService : CoinsPhApiService {
         )
     }
 
+    override suspend fun getKlines(
+        symbol: String,
+        interval: String,
+        limit: Int
+    ): Response<List<List<Any>>> {
+        val sampleKlines = listOf(
+            listOf(1700000000000L, "5000000.0", "5100000.0", "4950000.0", "5050000.0", "12.5", 1700000300000L)
+        )
+        return Response.success(sampleKlines)
+    }
+
     override suspend fun testOrder(
         apiKey: String,
         symbol: String,

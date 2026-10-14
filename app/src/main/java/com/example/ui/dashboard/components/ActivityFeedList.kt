@@ -55,6 +55,7 @@ import java.util.Locale
 @Composable
 fun ActivityFeedList(
     logs: List<TradeLog>,
+    onExportCsv: (List<TradeLog>) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isExpanded by remember { mutableStateOf(false) }
@@ -71,13 +72,32 @@ fun ActivityFeedList(
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
-            Text(
-                text = "EXECUTION & AUDIT LOGS (LATEST)",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextMuted,
-                letterSpacing = 1.sp,
-                fontSize = 10.sp
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "EXECUTION & AUDIT LOGS (LATEST)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                    letterSpacing = 1.sp,
+                    fontSize = 10.sp
+                )
+                if (logs.isNotEmpty()) {
+                    TextButton(
+                        onClick = { onExportCsv(logs) },
+                        modifier = Modifier.testTag("btn_export_csv")
+                    ) {
+                        Text(
+                            text = "Export CSV",
+                            color = ElectricCyan,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
 
             if (logs.isEmpty()) {

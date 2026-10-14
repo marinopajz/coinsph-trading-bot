@@ -31,6 +31,13 @@ interface CoinsPhApiService {
         @Query("symbol") symbol: String? = null
     ): Response<Coins24HrTicker>
 
+    @GET("/openapi/quote/v1/klines")
+    suspend fun getKlines(
+        @Query("symbol") symbol: String,
+        @Query("interval") interval: String = "5m",
+        @Query("limit") limit: Int = 40
+    ): Response<List<List<Any>>>
+
     // Signed endpoints for Spot Trading & Account queries
     @POST("/openapi/v1/order/test")
     suspend fun testOrder(

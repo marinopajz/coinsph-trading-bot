@@ -24,6 +24,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -34,14 +36,22 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.TradingMode
 import com.example.ui.dashboard.components.ActivityFeedList
@@ -78,6 +88,13 @@ fun DashboardScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+
+    val totalQty = uiState.openPositions.sumOf { it.quantity }
+    val totalCost = uiState.openPositions.sumOf { it.amountInvested }
+    val avgEntry = if (totalQty > 0.0 && totalCost > 0.0) totalCost / totalQty else null
+    val tpPrice = if (avgEntry != null) avgEntry * (1.0 + (uiState.botSettings.takeProfitPercentage / 100.0)) else null
+    val slPrice = if (avgEntry != null) avgEntry * (1.0 - (uiState.botSettings.stopLossPercentage / 100.0)) else null
 
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let { msg ->
@@ -201,9 +218,17 @@ fun DashboardScreen(
                 val ticker = uiState.marketTicker
                 PriceChart(
                     priceHistory = uiState.priceHistory,
+                    candles = uiState.candles,
                     currentPrice = ticker?.price ?: 0.0,
                     quoteCurrency = uiState.botSettings.quoteCurrency,
-                    change24h = ticker?.change24h ?: 0.0
+                    change24h = ticker?.change24h ?: 0.0,
+                    chartType = uiState.chartType,
+                    chartInterval = uiState.chartInterval,
+                    averageEntryPrice = avgEntry,
+                    takeProfitPrice = tpPrice,
+                    stopLossPrice = slPrice,
+                    onChartTypeSelected = { viewModel.onChartTypeSelected(it) },
+                    onChartIntervalSelected = { viewModel.onChartIntervalSelected(it) }
                 )
             }
 
@@ -231,7 +256,13 @@ fun DashboardScreen(
                     onTakeProfitChanged = { viewModel.onTakeProfitChanged(it) },
                     onStopLossChanged = { viewModel.onStopLossChanged(it) },
                     onMaxCapitalChanged = { viewModel.onMaxCapitalChanged(it) },
-                    onMaxDailyLossChanged = { viewModel.onMaxDailyLossChanged(it) }
+                    onMaxDailyLossChanged = { viewModel.onMaxDailyLossChanged(it) },
+                    onRsiPeriodChanged = { viewModel.onRsiPeriodChanged(it) },
+                    onGridLevelsChanged = { viewModel.onGridLevelsChanged(it) },
+                    onGridLowerPriceChanged = { viewModel.onGridLowerPriceChanged(it) },
+                    onGridUpperPriceChanged = { viewModel.onGridUpperPriceChanged(it) },
+                    onTrailingTakeProfitToggled = { viewModel.onTrailingTakeProfitToggled(it) },
+                    onTrailingStopPercentageChanged = { viewModel.onTrailingStopPercentageChanged(it) }
                 )
             }
 
@@ -240,18 +271,24 @@ fun DashboardScreen(
                     botState = uiState.botStatus.state,
                     tradingMode = uiState.botSettings.tradingMode,
                     isOperationInProgress = uiState.isOperationInProgress,
-                    onStartBot = { viewModel.onStartBotClicked() },
+                    openPositionsCount = uiState.openPositions.size,
+                    onStartBot = { viewModel.onStartBotClicked(context) },
                     onPauseBot = { viewModel.onPauseBotClicked() },
-                    onStopBot = { viewModel.onStopBotClicked() },
+                    onStopBot = { viewModel.onStopBotClicked(context) },
                     onEmergencyStop = { viewModel.onEmergencyStopClicked() },
                     onRequestEnableLiveTrading = { viewModel.onRequestEnableLiveTrading() },
                     onSwitchToPaperTrading = { viewModel.onSwitchToPaperTrading() },
-                    onCancelAllOrders = { viewModel.onCancelAllOrders() }
+                    onCancelAllOrders = { viewModel.onCancelAllOrders() },
+                    onManualBuy = { viewModel.onManualBuyClicked() },
+                    onCloseAllPositions = { viewModel.onCloseAllPositionsClicked() }
                 )
             }
 
             item {
-                ActivityFeedList(logs = uiState.tradeLogs)
+                ActivityFeedList(
+                    logs = uiState.tradeLogs,
+                    onExportCsv = { logs -> exportLogsToCsv(context, logs) }
+                )
             }
 
             item {
@@ -296,6 +333,18 @@ fun DashboardScreen(
                             lineHeight = 16.sp
                         )
                     }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    TextButton(
+                        onClick = {
+                            viewModel.onDismissLiveTradingDialog()
+                            viewModel.onRequestConfigureCredentials()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_configure_credentials_modal")
+                    ) {
+                        Text("Configure / Update API Keys", color = CoinsEmerald, fontWeight = FontWeight.Bold)
+                    }
                 }
             },
             confirmButton = {
@@ -319,6 +368,78 @@ fun DashboardScreen(
         )
     }
 
+    // API Credentials Setup Dialog
+    if (uiState.showApiCredentialsDialog) {
+        var inputApiKey by remember { mutableStateOf("") }
+        var inputSecretKey by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { viewModel.onDismissCredentialsDialog() },
+            title = {
+                Text("Configure Coins.ph API Keys", fontWeight = FontWeight.Bold, color = TextPrimary)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Enter your Coins.ph Spot API credentials to execute live orders directly on the exchange.",
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
+                    OutlinedTextField(
+                        value = inputApiKey,
+                        onValueChange = { inputApiKey = it },
+                        label = { Text("API Key") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CoinsEmerald,
+                            unfocusedBorderColor = Color(0xFF263246),
+                            focusedLabelColor = CoinsEmerald,
+                            unfocusedLabelColor = TextMuted
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_api_key")
+                    )
+                    OutlinedTextField(
+                        value = inputSecretKey,
+                        onValueChange = { inputSecretKey = it },
+                        label = { Text("Secret Key") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CoinsEmerald,
+                            unfocusedBorderColor = Color(0xFF263246),
+                            focusedLabelColor = CoinsEmerald,
+                            unfocusedLabelColor = TextMuted
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_secret_key")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.onSaveCredentialsAndEnableLive(inputApiKey, inputSecretKey) },
+                    enabled = inputApiKey.isNotBlank() && inputSecretKey.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = CoinsEmerald),
+                    modifier = Modifier.testTag("btn_save_credentials")
+                ) {
+                    Text("SAVE & ENABLE LIVE", fontWeight = FontWeight.Bold, color = Color.Black)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.onDismissCredentialsDialog() },
+                    modifier = Modifier.testTag("btn_cancel_credentials")
+                ) {
+                    Text("CANCEL", color = TextMuted)
+                }
+            },
+            containerColor = Color(0xFF1B2230)
+        )
+    }
+
     // Generic Error Dialog
     uiState.errorMessage?.let { err ->
         AlertDialog(
@@ -336,4 +457,22 @@ fun DashboardScreen(
             containerColor = Color(0xFF1B2230)
         )
     }
+}
+
+private fun exportLogsToCsv(context: android.content.Context, logs: List<com.example.data.model.TradeLog>) {
+    val sb = StringBuilder()
+    sb.append("Timestamp,Mode,Symbol,Side,Type,Price,Quantity,Amount,Fee,RealizedPnL,Status,Message\n")
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+    logs.forEach { log ->
+        val dateStr = dateFormat.format(Date(log.timestamp))
+        val cleanMsg = log.message.replace(",", ";").replace("\n", " ")
+        sb.append("${dateStr},${log.tradingMode.name},${log.symbol},${log.side},${log.type},${log.price},${log.quantity},${log.amount},${log.fee},${log.realizedPnl},${log.status},\"${cleanMsg}\"\n")
+    }
+    val sendIntent = Intent().apply {
+        action = Intent.ACTION_SEND
+        putExtra(Intent.EXTRA_TEXT, sb.toString())
+        type = "text/csv"
+    }
+    val shareIntent = Intent.createChooser(sendIntent, "Export Coins.ph Trade Logs CSV")
+    context.startActivity(shareIntent)
 }

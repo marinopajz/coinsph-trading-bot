@@ -67,7 +67,12 @@ class RiskManager {
             }
 
             // 6. Duplicate-Order Prevention: Prevent orders within 15 seconds of the last order
-            val lastOrder = recentTradeLogs.maxByOrNull { it.timestamp }
+            val lastOrder = recentTradeLogs
+                .filter {
+                    (it.side.equals("BUY", ignoreCase = true) || it.side.equals("SELL", ignoreCase = true)) &&
+                    it.status.equals("FILLED", ignoreCase = true)
+                }
+                .maxByOrNull { it.timestamp }
             if (lastOrder != null && (now - lastOrder.timestamp) < 15_000) {
                 return RiskCheckResult.Rejected(
                     "Duplicate order cooldown active: Last order was executed ${(now - lastOrder.timestamp) / 1000}s ago"

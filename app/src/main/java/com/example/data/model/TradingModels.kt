@@ -19,6 +19,31 @@ enum class BotState(val label: String) {
     ERROR("Error")
 }
 
+enum class ChartType(val label: String) {
+    LINE("Line"),
+    CANDLE("Candles"),
+    AREA("Area + MA")
+}
+
+enum class ChartInterval(val code: String, val label: String) {
+    ONE_MIN("1m", "1m"),
+    FIVE_MIN("5m", "5m"),
+    FIFTEEN_MIN("15m", "15m"),
+    ONE_HOUR("1h", "1H"),
+    FOUR_HOUR("4h", "4H"),
+    ONE_DAY("1d", "1D")
+}
+
+data class CandleStick(
+    val openTime: Long,
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double,
+    val volume: Double,
+    val closeTime: Long
+)
+
 data class BotSettings(
     val symbol: String = "BTCPHP",
     val strategyType: StrategyType = StrategyType.DCA,
@@ -37,6 +62,9 @@ data class BotSettings(
     val gridUpperPrice: Double = 6000000.0,
     val gridLowerPrice: Double = 5000000.0,
     val rsiPeriod: Int = 14,
+    val trailingTakeProfitEnabled: Boolean = false,
+    val trailingStopPercentage: Double = 1.0,
+    val peakPrice: Double = 0.0,
     val lastUpdated: Long = System.currentTimeMillis()
 )
 
@@ -76,7 +104,7 @@ data class MarketTicker(
 )
 
 data class PortfolioSnapshot(
-    val quoteBalance: Double = 25000.0, // Default virtual paper quote balance
+    val quoteBalance: Double = 50000.0, // Default virtual paper quote balance
     val baseBalance: Double = 0.0,
     val quoteCurrency: String = "PHP",
     val allocatedCapital: Double = 0.0,

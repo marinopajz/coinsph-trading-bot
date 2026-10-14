@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.model.BotRuntimeStatus
 import com.example.data.model.BotSettings
 import com.example.data.model.BotState
+import com.example.data.model.CandleStick
+import com.example.data.model.ChartInterval
+import com.example.data.model.ChartType
 import com.example.data.model.CoinsSymbolInfo
 import com.example.data.model.MarketTicker
 import com.example.data.model.OpenPosition
@@ -37,11 +40,16 @@ data class DashboardUiState(
     val tradeLogs: List<TradeLog> = emptyList(),
     val marketTicker: MarketTicker? = null,
     val priceHistory: List<PricePoint> = emptyList(),
+    val candles: List<CandleStick> = emptyList(),
+    val chartType: ChartType = ChartType.CANDLE,
+    val chartInterval: ChartInterval = ChartInterval.FIVE_MIN,
     val openPositions: List<OpenPosition> = emptyList(),
     val availableSymbols: List<CoinsSymbolInfo> = emptyList(),
     val isOperationInProgress: Boolean = false,
     val isSavingSettings: Boolean = false,
     val showLiveConfirmDialog: Boolean = false,
+    val showApiCredentialsDialog: Boolean = false,
+    val hasLiveCredentials: Boolean = false,
     val errorMessage: String? = null,
     val snackbarMessage: String? = null
 )
@@ -69,23 +77,37 @@ class BotDashboardViewModel(
 
     private fun loadInitialData() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
+            _uiState.update { it.copy(isLoading = true, hasLiveCredentials = repository.hasLiveCredentials()) }
             val symbolsRes = repository.getAvailableSymbols()
-            val symbols = symbolsRes.getOrDefault(
-                listOf(
-                    CoinsSymbolInfo("BTCPHP", "TRADING", "BTC", "PHP", true),
-                    CoinsSymbolInfo("BTCUSDT", "TRADING", "BTC", "USDT", true),
-                    CoinsSymbolInfo("ETHPHP", "TRADING", "ETH", "PHP", true),
-                    CoinsSymbolInfo("ETHUSDT", "TRADING", "ETH", "USDT", true),
-                    CoinsSymbolInfo("SOLPHP", "TRADING", "SOL", "PHP", true),
-                    CoinsSymbolInfo("SOLUSDT", "TRADING", "SOL", "USDT", true),
-                    CoinsSymbolInfo("XRPPHP", "TRADING", "XRP", "PHP", true)
-                )
+            val defaultSymbols = listOf(
+                CoinsSymbolInfo("BTCPHP", "TRADING", "BTC", "PHP", true),
+                CoinsSymbolInfo("ETHPHP", "TRADING", "ETH", "PHP", true),
+                CoinsSymbolInfo("XRPPHP", "TRADING", "XRP", "PHP", true),
+                CoinsSymbolInfo("SOLPHP", "TRADING", "SOL", "PHP", true),
+                CoinsSymbolInfo("BTCUSDT", "TRADING", "BTC", "USDT", true),
+                CoinsSymbolInfo("ETHUSDT", "TRADING", "ETH", "USDT", true),
+                CoinsSymbolInfo("SOLUSDT", "TRADING", "SOL", "USDT", true),
+                CoinsSymbolInfo("BTCUSDC", "TRADING", "BTC", "USDC", true)
             )
+            val rawSymbols = symbolsRes.getOrDefault(defaultSymbols)
+
+            val priorityOrder = listOf("BTCPHP", "ETHPHP", "XRPPHP", "SOLPHP", "BTCUSDT", "ETHUSDT", "SOLUSDT", "BTCUSDC")
+            val sortedSymbols = rawSymbols.sortedWith { a, b ->
+                val indexA = priorityOrder.indexOf(a.symbol.uppercase())
+                val indexB = priorityOrder.indexOf(b.symbol.uppercase())
+                when {
+                    indexA != -1 && indexB != -1 -> indexA.compareTo(indexB)
+                    indexA != -1 -> -1
+                    indexB != -1 -> 1
+                    else -> a.symbol.compareTo(b.symbol, ignoreCase = true)
+                }
+            }
+
             _uiState.update {
                 it.copy(
-                    availableSymbols = symbols,
-                    isLoading = false
+                    availableSymbols = sortedSymbols,
+                    isLoading = false,
+                    hasLiveCredentials = repository.hasLiveCredentials()
                 )
             }
         }
@@ -127,6 +149,16 @@ class BotDashboardViewModel(
                 _uiState.update { it.copy(openPositions = positions) }
             }
         }
+        viewModelScope.launch {
+            repository.candlesFlow.collect { candlesList ->
+                _uiState.update { it.copy(candles = candlesList) }
+            }
+        }
+        viewModelScope.launch {
+            repository.selectedIntervalFlow.collect { interval ->
+                _uiState.update { it.copy(chartInterval = interval) }
+            }
+        }
     }
 
     fun onSymbolSelected(symbol: String) {
@@ -140,6 +172,16 @@ class BotDashboardViewModel(
                     snackbarMessage = "Market switched to $symbol"
                 )
             }
+        }
+    }
+
+    fun onChartTypeSelected(type: ChartType) {
+        _uiState.update { it.copy(chartType = type) }
+    }
+
+    fun onChartIntervalSelected(interval: ChartInterval) {
+        viewModelScope.launch {
+            repository.setChartInterval(interval)
         }
     }
 
@@ -189,6 +231,39 @@ class BotDashboardViewModel(
         updateSettings(current.copy(checkIntervalMinutes = minutes.coerceAtLeast(1)))
     }
 
+    fun onRsiPeriodChanged(period: Int) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(rsiPeriod = period.coerceAtLeast(2)))
+    }
+
+    fun onGridLevelsChanged(levels: Int) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(gridLevels = levels.coerceAtLeast(2)))
+    }
+
+    fun onGridLowerPriceChanged(price: Double) {
+        if (price <= 0.0) return
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(gridLowerPrice = price))
+    }
+
+    fun onGridUpperPriceChanged(price: Double) {
+        if (price <= 0.0) return
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(gridUpperPrice = price))
+    }
+
+    fun onTrailingTakeProfitToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(trailingTakeProfitEnabled = enabled))
+    }
+
+    fun onTrailingStopPercentageChanged(pct: Double) {
+        if (pct <= 0.0) return
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(trailingStopPercentage = pct))
+    }
+
     private fun updateSettings(settings: BotSettings) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSavingSettings = true) }
@@ -197,12 +272,13 @@ class BotDashboardViewModel(
         }
     }
 
-    fun onStartBotClicked() {
+    fun onStartBotClicked(context: android.content.Context? = null) {
         if (_uiState.value.isOperationInProgress) return
         viewModelScope.launch {
             _uiState.update { it.copy(isOperationInProgress = true) }
             val res = repository.startBot()
             res.onSuccess {
+                context?.let { ctx -> com.example.service.BotForegroundService.startService(ctx) }
                 _uiState.update {
                     it.copy(
                         isOperationInProgress = false,
@@ -234,11 +310,12 @@ class BotDashboardViewModel(
         }
     }
 
-    fun onStopBotClicked() {
+    fun onStopBotClicked(context: android.content.Context? = null) {
         if (_uiState.value.isOperationInProgress) return
         viewModelScope.launch {
             _uiState.update { it.copy(isOperationInProgress = true) }
             repository.stopBot()
+            context?.let { ctx -> com.example.service.BotForegroundService.stopService(ctx) }
             _uiState.update {
                 it.copy(
                     isOperationInProgress = false,
@@ -270,7 +347,44 @@ class BotDashboardViewModel(
         _uiState.update { it.copy(showLiveConfirmDialog = false) }
     }
 
+    fun onRequestConfigureCredentials() {
+        _uiState.update { it.copy(showApiCredentialsDialog = true) }
+    }
+
+    fun onDismissCredentialsDialog() {
+        _uiState.update { it.copy(showApiCredentialsDialog = false) }
+    }
+
+    fun onSaveCredentialsAndEnableLive(apiKey: String, secretKey: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(showApiCredentialsDialog = false, isOperationInProgress = true) }
+            repository.configureLiveCredentials(apiKey, secretKey)
+            _uiState.update { it.copy(hasLiveCredentials = repository.hasLiveCredentials()) }
+            val res = repository.setTradingMode(TradingMode.LIVE)
+            res.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        showLiveConfirmDialog = false,
+                        snackbarMessage = "Coins.ph API credentials saved & Live Trading Mode enabled."
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        errorMessage = "Failed to enable Live Trading: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
     fun onConfirmLiveTrading() {
+        if (!repository.hasLiveCredentials()) {
+            _uiState.update { it.copy(showLiveConfirmDialog = false, showApiCredentialsDialog = true) }
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(showLiveConfirmDialog = false, isOperationInProgress = true) }
             val res = repository.setTradingMode(TradingMode.LIVE)
@@ -278,6 +392,7 @@ class BotDashboardViewModel(
                 _uiState.update {
                     it.copy(
                         isOperationInProgress = false,
+                        hasLiveCredentials = repository.hasLiveCredentials(),
                         snackbarMessage = "Live Trading Mode enabled. Real funds are now active."
                     )
                 }
@@ -285,6 +400,7 @@ class BotDashboardViewModel(
                 _uiState.update {
                     it.copy(
                         isOperationInProgress = false,
+                        hasLiveCredentials = repository.hasLiveCredentials(),
                         errorMessage = "Cannot enable Live Trading: ${err.message}"
                     )
                 }
@@ -340,6 +456,52 @@ class BotDashboardViewModel(
         }
     }
 
+    fun onManualBuyClicked() {
+        if (_uiState.value.isOperationInProgress) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isOperationInProgress = true) }
+            val res = repository.manualBuyNow()
+            res.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        snackbarMessage = "Manual Quick Buy executed"
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        errorMessage = "Manual Buy failed: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun onCloseAllPositionsClicked() {
+        if (_uiState.value.isOperationInProgress) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isOperationInProgress = true) }
+            val res = repository.closeAllPositions()
+            res.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        snackbarMessage = "All open positions closed"
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        errorMessage = "Close All failed: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
     fun clearSnackbar() {
         _uiState.update { it.copy(snackbarMessage = null) }
     }
@@ -364,7 +526,14 @@ class BotDashboardViewModel(
                 val db = com.example.data.local.TradingDatabase.getDatabase(context)
                 val paperClient = PaperTradingExchangeClient(api, tradingDao = db.tradingDao())
                 val liveClient = CoinsPhExchangeClient(api)
-                val repository = TradingBotRepositoryImpl(paperClient, liveClient, tradingDao = db.tradingDao())
+                val prefs = context.getSharedPreferences("coins_live_prefs", android.content.Context.MODE_PRIVATE)
+                val repository = TradingBotRepositoryImpl(
+                    paperExchangeClient = paperClient,
+                    liveExchangeClient = liveClient,
+                    tradingDao = db.tradingDao(),
+                    sharedPreferences = prefs,
+                    context = context
+                )
                 return BotDashboardViewModel(repository) as T
             }
         }

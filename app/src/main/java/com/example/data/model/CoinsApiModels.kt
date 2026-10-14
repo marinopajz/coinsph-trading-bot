@@ -49,6 +49,7 @@ data class CoinsOrderResponse(
     @Json(name = "price") val price: String?,
     @Json(name = "origQty") val origQty: String?,
     @Json(name = "executedQty") val executedQty: String?,
+    @Json(name = "cummulativeQuoteQty") val cummulativeQuoteQty: String? = null,
     @Json(name = "status") val status: String?,
     @Json(name = "type") val type: String?,
     @Json(name = "side") val side: String?

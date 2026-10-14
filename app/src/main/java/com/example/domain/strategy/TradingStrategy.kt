@@ -60,12 +60,26 @@ class DcaStrategy : TradingStrategy {
                 val averageEntryPrice = totalCost / totalQty
                 val profitPct = ((currentPrice - averageEntryPrice) / averageEntryPrice) * 100.0
 
-                if (profitPct >= settings.takeProfitPercentage) {
-                    return TradingSignal(
-                        action = SignalAction.SELL,
-                        reason = String.format("Take Profit triggered: +%.2f%% (Target: +%.2f%%)", profitPct, settings.takeProfitPercentage),
-                        suggestedPrice = currentPrice
-                    )
+                if (settings.trailingTakeProfitEnabled) {
+                    if (profitPct >= settings.takeProfitPercentage) {
+                        val activePeak = maxOf(settings.peakPrice, currentPrice)
+                        val dropFromPeakPct = if (activePeak > 0.0) ((activePeak - currentPrice) / activePeak) * 100.0 else 0.0
+                        if (dropFromPeakPct >= settings.trailingStopPercentage && profitPct > 0.0) {
+                            return TradingSignal(
+                                action = SignalAction.SELL,
+                                reason = String.format("Trailing Take Profit triggered (Peak: %.2f, Drop: %.2f%%)", activePeak, dropFromPeakPct),
+                                suggestedPrice = currentPrice
+                            )
+                        }
+                    }
+                } else {
+                    if (profitPct >= settings.takeProfitPercentage) {
+                        return TradingSignal(
+                            action = SignalAction.SELL,
+                            reason = String.format("Take Profit triggered: +%.2f%% (Target: +%.2f%%)", profitPct, settings.takeProfitPercentage),
+                            suggestedPrice = currentPrice
+                        )
+                    }
                 }
 
                 if (profitPct <= -settings.stopLossPercentage) {
