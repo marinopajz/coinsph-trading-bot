@@ -3,6 +3,7 @@ package com.example.data.network
 import com.example.data.model.Coins24HrTicker
 import com.example.data.model.CoinsAccountInfo
 import com.example.data.model.CoinsExchangeInfo
+import com.example.data.model.CoinsOrderBookResponse
 import com.example.data.model.CoinsOrderResponse
 import com.example.data.model.CoinsServerTime
 import com.example.data.model.CoinsTickerPrice
@@ -37,6 +38,12 @@ interface CoinsPhApiService {
         @Query("interval") interval: String = "5m",
         @Query("limit") limit: Int = 40
     ): Response<List<List<Any>>>
+
+    @GET("/openapi/quote/v1/depth")
+    suspend fun getOrderBook(
+        @Query("symbol") symbol: String,
+        @Query("limit") limit: Int = 5
+    ): Response<CoinsOrderBookResponse>
 
     // Signed endpoints for Spot Trading & Account queries
     @POST("/openapi/v1/order/test")

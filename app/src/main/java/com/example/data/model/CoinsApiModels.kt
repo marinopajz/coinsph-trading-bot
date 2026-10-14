@@ -37,7 +37,15 @@ data class Coins24HrTicker(
     @Json(name = "priceChangePercent") val priceChangePercent: String?,
     @Json(name = "highPrice") val highPrice: String?,
     @Json(name = "lowPrice") val lowPrice: String?,
-    @Json(name = "volume") val volume: String?
+    @Json(name = "volume") val volume: String?,
+    @Json(name = "bidPrice") val bidPrice: String? = null,
+    @Json(name = "askPrice") val askPrice: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class CoinsOrderBookResponse(
+    @Json(name = "bids") val bids: List<List<String>> = emptyList(),
+    @Json(name = "asks") val asks: List<List<String>> = emptyList()
 )
 
 @JsonClass(generateAdapter = true)

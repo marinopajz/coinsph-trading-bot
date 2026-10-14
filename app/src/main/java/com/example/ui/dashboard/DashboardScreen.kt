@@ -58,6 +58,7 @@ import com.example.ui.dashboard.components.ActivityFeedList
 import com.example.ui.dashboard.components.BotActionsBar
 import com.example.ui.dashboard.components.HeaderStatusCard
 import com.example.ui.dashboard.components.OpenPositionsCard
+import com.example.ui.dashboard.components.OrderBookCard
 import com.example.ui.dashboard.components.PriceChart
 import com.example.ui.dashboard.components.QuickStatsGrid
 import com.example.ui.dashboard.components.StrategyControlsCard
@@ -209,8 +210,10 @@ fun DashboardScreen(
                 HeaderStatusCard(
                     status = uiState.botStatus,
                     activeSymbol = uiState.botSettings.symbol,
+                    exchangePlatform = uiState.botSettings.exchangePlatform,
                     availableSymbols = uiState.availableSymbols,
-                    onSymbolSelected = { viewModel.onSymbolSelected(it) }
+                    onSymbolSelected = { viewModel.onSymbolSelected(it) },
+                    onExchangePlatformSelected = { viewModel.onExchangePlatformSelected(it) }
                 )
             }
 
@@ -229,6 +232,12 @@ fun DashboardScreen(
                     stopLossPrice = slPrice,
                     onChartTypeSelected = { viewModel.onChartTypeSelected(it) },
                     onChartIntervalSelected = { viewModel.onChartIntervalSelected(it) }
+                )
+            }
+
+            item {
+                OrderBookCard(
+                    orderBook = uiState.orderBook
                 )
             }
 
@@ -262,7 +271,17 @@ fun DashboardScreen(
                     onGridLowerPriceChanged = { viewModel.onGridLowerPriceChanged(it) },
                     onGridUpperPriceChanged = { viewModel.onGridUpperPriceChanged(it) },
                     onTrailingTakeProfitToggled = { viewModel.onTrailingTakeProfitToggled(it) },
-                    onTrailingStopPercentageChanged = { viewModel.onTrailingStopPercentageChanged(it) }
+                    onTrailingStopPercentageChanged = { viewModel.onTrailingStopPercentageChanged(it) },
+                    onSmartEntryToggled = { viewModel.onSmartEntryToggled(it) },
+                    onBreakEvenLockToggled = { viewModel.onBreakEvenLockToggled(it) },
+                    onGreenCandleConfirmationToggled = { viewModel.onGreenCandleConfirmationToggled(it) },
+                    onDcaMultiplierChanged = { viewModel.onDcaMultiplierChanged(it) },
+                    onNeverSellAtLossToggled = { viewModel.onNeverSellAtLossToggled(it) },
+                    onSpreadGuardToggled = { viewModel.onSpreadGuardToggled(it) },
+                    onCrashTrendFilterToggled = { viewModel.onCrashTrendFilterToggled(it) },
+                    onPartialTakeProfitToggled = { viewModel.onPartialTakeProfitToggled(it) },
+                    onRunBacktestClicked = { viewModel.onRunBacktestClicked() },
+                    onAutoOptimizeClicked = { viewModel.onAutoOptimizeClicked() }
                 )
             }
 
@@ -452,6 +471,112 @@ fun DashboardScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = WarningAmber, contentColor = Color.Black)
                 ) {
                     Text("ACKNOWLEDGE", fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = Color(0xFF1B2230)
+        )
+    }
+
+    // Backtest Result Dialog
+    uiState.lastBacktestResult?.let { res ->
+        AlertDialog(
+            onDismissRequest = { viewModel.onDismissBacktestResult() },
+            title = {
+                Text(
+                    text = if (res.recommendedSettings != null) "⚡ Auto-Optimization Result" else "🧪 Strategy Backtest Results",
+                    fontWeight = FontWeight.Bold,
+                    color = CoinsEmerald
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Simulated on ${res.symbol} (${res.interval}) across ${res.candlesTested} historical candles:",
+                        color = TextPrimary,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF141D2A), RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Strategy: ${res.strategy.label}", color = TextSecondary, fontSize = 11.sp)
+                            Text("Closed Trades: ${res.totalTrades} | Win Rate: ${String.format(Locale.US, "%.1f%%", res.winRate)}", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            if (res.openPositionsCount > 0) {
+                                Text(
+                                    text = String.format(Locale.US, "Holding Positions: %d | Open Unrealized: %+.2f %s", res.openPositionsCount, res.unrealizedPnl, uiState.botSettings.quoteCurrency),
+                                    color = TextMuted,
+                                    fontSize = 10.sp
+                                )
+                            }
+                            Text(
+                                text = String.format(Locale.US, "Total Net Simulated PnL: %+.2f %s", res.netPnl, uiState.botSettings.quoteCurrency),
+                                color = if (res.netPnl >= 0) CoinsEmerald else LossRed,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    if (res.recommendedSettings != null) {
+                        val rec = res.recommendedSettings
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(CoinsEmerald.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Text("💡 Optimal Configuration Found:", color = CoinsEmerald, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = String.format(
+                                        Locale.US,
+                                        "• Strategy: %s\n• Target TP: %.1f%% | Dip Trigger: %.1f%%\n• Trailing Stop: %s (%.1f%%)\n• DCA Multiplier: %.2fx",
+                                        rec.strategyType.label,
+                                        rec.takeProfitPercentage,
+                                        rec.dipTriggerPercentage,
+                                        if (rec.trailingTakeProfitEnabled) "Enabled" else "Off",
+                                        rec.trailingStopPercentage,
+                                        rec.dcaMultiplier
+                                    ),
+                                    color = TextPrimary,
+                                    fontSize = 10.sp,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Note: Includes 0.10% buy + 0.10% sell spot trading fees. Past performance does not guarantee future results.",
+                        color = TextMuted,
+                        fontSize = 10.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (res.recommendedSettings != null) {
+                        Button(
+                            onClick = { viewModel.onApplyRecommendedSettings(res.recommendedSettings) },
+                            colors = ButtonDefaults.buttonColors(containerColor = CoinsEmerald, contentColor = Color.Black),
+                            modifier = Modifier.testTag("btn_apply_recommended")
+                        ) {
+                            Text("APPLY BEST SETTINGS", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                    }
+                    TextButton(
+                        onClick = { viewModel.onDismissBacktestResult() },
+                        modifier = Modifier.testTag("btn_close_backtest_modal")
+                    ) {
+                        Text("CLOSE", color = TextMuted)
+                    }
                 }
             },
             containerColor = Color(0xFF1B2230)

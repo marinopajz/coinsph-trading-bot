@@ -1,6 +1,7 @@
 package com.example.domain.strategy
 
 import com.example.data.model.BotSettings
+import com.example.data.model.CandleStick
 import com.example.data.model.MarketTicker
 import com.example.data.model.OpenPosition
 import com.example.data.model.PricePoint
@@ -28,7 +29,8 @@ interface TradingStrategy {
         currentTicker: MarketTicker,
         priceHistory: List<PricePoint>,
         openPositions: List<OpenPosition>,
-        allocatedCapital: Double
+        allocatedCapital: Double,
+        candles: List<CandleStick> = emptyList()
     ): TradingSignal
 }
 
@@ -45,20 +47,29 @@ class DcaStrategy : TradingStrategy {
         currentTicker: MarketTicker,
         priceHistory: List<PricePoint>,
         openPositions: List<OpenPosition>,
-        allocatedCapital: Double
+        allocatedCapital: Double,
+        candles: List<CandleStick>
     ): TradingSignal {
         val currentPrice = currentTicker.price
         if (currentPrice <= 0.0) {
             return TradingSignal(SignalAction.HOLD, "Invalid market price ($currentPrice)")
         }
 
-        // 1. Check Take Profit and Stop Loss across existing open positions
+        // 1. Check Take Profit, Break-Even Lock, and Stop Loss across existing open positions
         if (openPositions.isNotEmpty()) {
             val totalQty = openPositions.sumOf { it.quantity }
             val totalCost = openPositions.sumOf { it.amountInvested }
             if (totalQty > 0.0 && totalCost > 0.0) {
                 val averageEntryPrice = totalCost / totalQty
                 val profitPct = ((currentPrice - averageEntryPrice) / averageEntryPrice) * 100.0
+
+                if (settings.breakEvenLockEnabled && settings.breakEvenActivated && profitPct <= 0.30) {
+                    return TradingSignal(
+                        action = SignalAction.SELL,
+                        reason = String.format("Break-Even Lock triggered at +%.2f%% (Protected profit & fees)", profitPct),
+                        suggestedPrice = currentPrice
+                    )
+                }
 
                 if (settings.trailingTakeProfitEnabled) {
                     if (profitPct >= settings.takeProfitPercentage) {
@@ -82,12 +93,21 @@ class DcaStrategy : TradingStrategy {
                     }
                 }
 
-                if (profitPct <= -settings.stopLossPercentage) {
-                    return TradingSignal(
-                        action = SignalAction.SELL,
-                        reason = String.format("Stop Loss triggered: %.2f%% (Limit: -%.2f%%)", profitPct, settings.stopLossPercentage),
-                        suggestedPrice = currentPrice
-                    )
+                if (settings.neverSellAtLoss) {
+                    if (profitPct <= -settings.stopLossPercentage) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = String.format("Spot HODL Guard active: holding through drawdown (PnL: %+.2f%%)", profitPct)
+                        )
+                    }
+                } else {
+                    if (profitPct <= -settings.stopLossPercentage) {
+                        return TradingSignal(
+                            action = SignalAction.SELL,
+                            reason = String.format("Stop Loss triggered: %.2f%% (Limit: -%.2f%%)", profitPct, settings.stopLossPercentage),
+                            suggestedPrice = currentPrice
+                        )
+                    }
                 }
             }
         }
@@ -101,8 +121,49 @@ class DcaStrategy : TradingStrategy {
             )
         }
 
-        // 3. Check Dip Trigger
+        // 3. Safety Filters before BUY
+        if (settings.spreadGuardEnabled && currentTicker.bidPrice > 0.0 && currentTicker.askPrice >= currentTicker.bidPrice) {
+            val spreadPct = ((currentTicker.askPrice - currentTicker.bidPrice) / currentTicker.bidPrice) * 100.0
+            if (spreadPct > settings.maxSpreadPercentage) {
+                return TradingSignal(
+                    action = SignalAction.HOLD,
+                    reason = String.format("Spread Guard blocked BUY: spread %.2f%% > %.2f%%", spreadPct, settings.maxSpreadPercentage)
+                )
+            }
+        }
+
+        if (settings.crashTrendFilterEnabled && candles.size >= 20) {
+            val ma7 = candles.takeLast(7).map { it.close }.average()
+            val ma20 = candles.takeLast(20).map { it.close }.average()
+            if (((ma20 - ma7) / ma20) * 100.0 > 1.8 && candles.last().close < candles.last().open) {
+                return TradingSignal(
+                    action = SignalAction.HOLD,
+                    reason = "Crash Regime Filter: steep downtrend detected, pausing BUY"
+                )
+            }
+        }
+
+        // 4. Entry evaluation (Initial or DCA Dip)
         if (openPositions.isEmpty()) {
+            if (settings.smartEntryEnabled && priceHistory.size >= 5) {
+                val rsi = RsiSwingStrategy.calculateRsi(priceHistory, settings.rsiPeriod)
+                if (rsi > 52.0) {
+                    return TradingSignal(
+                        action = SignalAction.HOLD,
+                        reason = String.format("Smart Entry waiting for pullback (Current RSI: %.1f > 52)", rsi)
+                    )
+                }
+                if (settings.greenCandleConfirmation && candles.isNotEmpty()) {
+                    val lastCandle = candles.last()
+                    if (lastCandle.close < lastCandle.open) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = "Waiting for bullish green candle confirmation"
+                        )
+                    }
+                }
+            }
+
             // First entry signal
             return TradingSignal(
                 action = SignalAction.BUY,
@@ -116,10 +177,24 @@ class DcaStrategy : TradingStrategy {
             val priceDropPct = ((lastEntryPrice - currentPrice) / lastEntryPrice) * 100.0
 
             if (priceDropPct >= settings.dipTriggerPercentage) {
+                if (settings.greenCandleConfirmation && candles.isNotEmpty()) {
+                    val lastCandle = candles.last()
+                    if (lastCandle.close < lastCandle.open) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = String.format("Dip threshold met (-%.2f%%), waiting for green reversal candle", priceDropPct)
+                        )
+                    }
+                }
+
+                val scaledAmount = (settings.orderAmount * Math.pow(settings.dcaMultiplier, openPositions.size.toDouble()))
+                    .coerceAtMost(remainingCapital)
+                    .coerceAtMost(settings.maxOrderValue)
+
                 return TradingSignal(
                     action = SignalAction.BUY,
-                    reason = String.format("DCA dip trigger satisfied: -%.2f%% from last entry (Threshold: %.2f%%)", priceDropPct, settings.dipTriggerPercentage),
-                    suggestedAmount = settings.orderAmount,
+                    reason = String.format("DCA dip trigger satisfied: -%.2f%% from last entry (Threshold: %.2f%%, Multiplier: %.2fx)", priceDropPct, settings.dipTriggerPercentage, settings.dcaMultiplier),
+                    suggestedAmount = scaledAmount,
                     suggestedPrice = currentPrice
                 )
             } else {
@@ -145,7 +220,8 @@ class RsiSwingStrategy : TradingStrategy {
         currentTicker: MarketTicker,
         priceHistory: List<PricePoint>,
         openPositions: List<OpenPosition>,
-        allocatedCapital: Double
+        allocatedCapital: Double,
+        candles: List<CandleStick>
     ): TradingSignal {
         val currentPrice = currentTicker.price
         if (priceHistory.size < (settings.rsiPeriod + 1)) {
@@ -165,21 +241,58 @@ class RsiSwingStrategy : TradingStrategy {
                 val avgPrice = totalCost / totalQty
                 val profitPct = ((currentPrice - avgPrice) / avgPrice) * 100.0
 
-                if (profitPct <= -settings.stopLossPercentage) {
-                    return TradingSignal(
-                        action = SignalAction.SELL,
-                        reason = String.format("RSI Stop Loss triggered: %.2f%%", profitPct),
-                        suggestedPrice = currentPrice
-                    )
+                if (settings.neverSellAtLoss) {
+                    if (profitPct <= -settings.stopLossPercentage) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = String.format("Spot HODL Guard active: holding through drawdown (PnL: %+.2f%%)", profitPct)
+                        )
+                    }
+                } else {
+                    if (profitPct <= -settings.stopLossPercentage) {
+                        return TradingSignal(
+                            action = SignalAction.SELL,
+                            reason = String.format("RSI Stop Loss triggered: %.2f%%", profitPct),
+                            suggestedPrice = currentPrice
+                        )
+                    }
                 }
 
                 if (rsi >= 70.0 || profitPct >= settings.takeProfitPercentage) {
+                    if (settings.neverSellAtLoss && profitPct < 0.25) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = "Spot HODL Guard: waiting for profit >= +0.25%"
+                        )
+                    }
                     return TradingSignal(
                         action = SignalAction.SELL,
                         reason = String.format("RSI Overbought exit signal (RSI: %.1f, Profit: +%.2f%%)", rsi, profitPct),
                         suggestedPrice = currentPrice
                     )
                 }
+            }
+        }
+
+        // Safety Filters before BUY
+        if (settings.spreadGuardEnabled && currentTicker.bidPrice > 0.0 && currentTicker.askPrice >= currentTicker.bidPrice) {
+            val spreadPct = ((currentTicker.askPrice - currentTicker.bidPrice) / currentTicker.bidPrice) * 100.0
+            if (spreadPct > settings.maxSpreadPercentage) {
+                return TradingSignal(
+                    action = SignalAction.HOLD,
+                    reason = String.format("Spread Guard blocked BUY: spread %.2f%% > %.2f%%", spreadPct, settings.maxSpreadPercentage)
+                )
+            }
+        }
+
+        if (settings.crashTrendFilterEnabled && candles.size >= 20) {
+            val ma7 = candles.takeLast(7).map { it.close }.average()
+            val ma20 = candles.takeLast(20).map { it.close }.average()
+            if (((ma20 - ma7) / ma20) * 100.0 > 1.8 && candles.last().close < candles.last().open) {
+                return TradingSignal(
+                    action = SignalAction.HOLD,
+                    reason = "Crash Regime Filter: steep downtrend detected, pausing BUY"
+                )
             }
         }
 
@@ -246,7 +359,8 @@ class GridTradingStrategy : TradingStrategy {
         currentTicker: MarketTicker,
         priceHistory: List<PricePoint>,
         openPositions: List<OpenPosition>,
-        allocatedCapital: Double
+        allocatedCapital: Double,
+        candles: List<CandleStick>
     ): TradingSignal {
         val currentPrice = currentTicker.price
         val upper = settings.gridUpperPrice
@@ -302,5 +416,140 @@ class GridTradingStrategy : TradingStrategy {
         }
 
         return TradingSignal(SignalAction.HOLD, "Grid within bounds, holding positions")
+    }
+}
+
+/**
+ * Bollinger Bands Mean Reversion Strategy
+ * Calculates 20-period SMA and standard deviation bands (2.0x multiplier).
+ * Enters on lower band bounces and exits at mean (SMA20) or upper band.
+ */
+class BollingerBandsStrategy : TradingStrategy {
+    override val type: StrategyType = StrategyType.BOLLINGER
+
+    override fun evaluate(
+        settings: BotSettings,
+        currentTicker: MarketTicker,
+        priceHistory: List<PricePoint>,
+        openPositions: List<OpenPosition>,
+        allocatedCapital: Double,
+        candles: List<CandleStick>
+    ): TradingSignal {
+        val currentPrice = currentTicker.price
+        if (currentPrice <= 0.0) {
+            return TradingSignal(SignalAction.HOLD, "Invalid market price ($currentPrice)")
+        }
+
+        val prices = if (candles.size >= 20) {
+            candles.map { it.close }
+        } else if (priceHistory.size >= 20) {
+            priceHistory.map { it.price }
+        } else {
+            emptyList()
+        }
+
+        if (prices.size < 20) {
+            return TradingSignal(
+                action = SignalAction.HOLD,
+                reason = "Insufficient historical price points for Bollinger Bands calculation (${prices.size}/20)"
+            )
+        }
+
+        val window = prices.takeLast(20)
+        val sma20 = window.average()
+        val variance = window.sumOf { (it - sma20) * (it - sma20) } / 20.0
+        val stdDev = kotlin.math.sqrt(variance)
+        val upperBand = sma20 + (2.0 * stdDev)
+        val lowerBand = sma20 - (2.0 * stdDev)
+
+        // 1. Exit Evaluation
+        if (openPositions.isNotEmpty()) {
+            val totalQty = openPositions.sumOf { it.quantity }
+            val totalCost = openPositions.sumOf { it.amountInvested }
+            if (totalQty > 0.0 && totalCost > 0.0) {
+                val averageEntryPrice = totalCost / totalQty
+                val profitPct = ((currentPrice - averageEntryPrice) / averageEntryPrice) * 100.0
+
+                if (settings.neverSellAtLoss) {
+                    if (profitPct < 0.25) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = String.format("Spot HODL Guard active: holding through drawdown (PnL: %+.2f%% < +0.25%%)", profitPct)
+                        )
+                    }
+                } else {
+                    if (profitPct <= -settings.stopLossPercentage) {
+                        return TradingSignal(
+                            action = SignalAction.SELL,
+                            reason = String.format("Bollinger Stop Loss triggered: %.2f%%", profitPct),
+                            suggestedPrice = currentPrice
+                        )
+                    }
+                }
+
+                if ((currentPrice >= sma20 && profitPct >= 0.40) || profitPct >= settings.takeProfitPercentage || (currentPrice >= upperBand && profitPct >= 0.25)) {
+                    return TradingSignal(
+                        action = SignalAction.SELL,
+                        reason = String.format("Bollinger Mean-Reversion exit signal (Target SMA20: %.2f, Profit: +%.2f%%)", sma20, profitPct),
+                        suggestedPrice = currentPrice
+                    )
+                }
+            }
+        }
+
+        // 2. Capital & Safety Guards before BUY
+        val remainingCapital = settings.maxCapital - allocatedCapital
+        if (remainingCapital < settings.orderAmount) {
+            return TradingSignal(
+                action = SignalAction.HOLD,
+                reason = "Max capital allocation reached (${allocatedCapital}/${settings.maxCapital} ${settings.quoteCurrency})"
+            )
+        }
+
+        if (settings.spreadGuardEnabled && currentTicker.bidPrice > 0.0 && currentTicker.askPrice >= currentTicker.bidPrice) {
+            val spreadPct = ((currentTicker.askPrice - currentTicker.bidPrice) / currentTicker.bidPrice) * 100.0
+            if (spreadPct > settings.maxSpreadPercentage) {
+                return TradingSignal(
+                    action = SignalAction.HOLD,
+                    reason = String.format("Spread Guard blocked BUY: spread %.2f%% > %.2f%%", spreadPct, settings.maxSpreadPercentage)
+                )
+            }
+        }
+
+        if (settings.crashTrendFilterEnabled && candles.size >= 20) {
+            val ma7 = candles.takeLast(7).map { it.close }.average()
+            val ma20 = candles.takeLast(20).map { it.close }.average()
+            if (((ma20 - ma7) / ma20) * 100.0 > 1.8 && candles.last().close < candles.last().open) {
+                return TradingSignal(
+                    action = SignalAction.HOLD,
+                    reason = "Crash Regime Filter: steep downtrend detected, pausing BUY"
+                )
+            }
+        }
+
+        // 3. Entry Evaluation (Lower Band Bounce)
+        if (currentPrice <= (lowerBand * 1.002)) {
+            if (settings.greenCandleConfirmation && candles.isNotEmpty()) {
+                val lastCandle = candles.last()
+                if (lastCandle.close < lastCandle.open) {
+                    return TradingSignal(
+                        action = SignalAction.HOLD,
+                        reason = "Bollinger lower band touched, waiting for green reversal candle"
+                    )
+                }
+            }
+
+            return TradingSignal(
+                action = SignalAction.BUY,
+                reason = String.format("Bollinger Lower Band bounce signal (Price: %.2f <= Band: %.2f)", currentPrice, lowerBand),
+                suggestedAmount = settings.orderAmount,
+                suggestedPrice = currentPrice
+            )
+        }
+
+        return TradingSignal(
+            action = SignalAction.HOLD,
+            reason = String.format("Bollinger neutral (Price: %.2f, Lower: %.2f, Mid: %.2f, Upper: %.2f)", currentPrice, lowerBand, sma20, upperBand)
+        )
     }
 }

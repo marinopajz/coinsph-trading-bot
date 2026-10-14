@@ -2,6 +2,7 @@ package com.example.ui.dashboard.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,11 +13,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
@@ -29,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -42,7 +49,6 @@ import com.example.ui.theme.CryptoSurface
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-import java.util.Locale
 
 @Composable
 fun StrategyControlsCard(
@@ -60,9 +66,19 @@ fun StrategyControlsCard(
     onGridUpperPriceChanged: (Double) -> Unit = {},
     onTrailingTakeProfitToggled: (Boolean) -> Unit = {},
     onTrailingStopPercentageChanged: (Double) -> Unit = {},
+    onSmartEntryToggled: (Boolean) -> Unit = {},
+    onBreakEvenLockToggled: (Boolean) -> Unit = {},
+    onGreenCandleConfirmationToggled: (Boolean) -> Unit = {},
+    onDcaMultiplierChanged: (Double) -> Unit = {},
+    onNeverSellAtLossToggled: (Boolean) -> Unit = {},
+    onSpreadGuardToggled: (Boolean) -> Unit = {},
+    onCrashTrendFilterToggled: (Boolean) -> Unit = {},
+    onPartialTakeProfitToggled: (Boolean) -> Unit = {},
+    onRunBacktestClicked: () -> Unit = {},
+    onAutoOptimizeClicked: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val strategies = listOf(StrategyType.DCA, StrategyType.RSI_SWING, StrategyType.GRID)
+    val strategies = listOf(StrategyType.DCA, StrategyType.RSI_SWING, StrategyType.GRID, StrategyType.BOLLINGER)
     val selectedIndex = strategies.indexOf(settings.strategyType).coerceAtLeast(0)
 
     var orderAmountText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.orderAmount.toString()) }
@@ -119,8 +135,9 @@ fun StrategyControlsCard(
                             Text(
                                 text = when (strat) {
                                     StrategyType.DCA -> "DCA"
-                                    StrategyType.RSI_SWING -> "RSI SWING"
+                                    StrategyType.RSI_SWING -> "RSI"
                                     StrategyType.GRID -> "GRID"
+                                    StrategyType.BOLLINGER -> "BOLL"
                                 },
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = if (selectedIndex == index) FontWeight.Bold else FontWeight.Normal
@@ -153,7 +170,7 @@ fun StrategyControlsCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Row 1: Order Amount & Strategy Specific Input
+            // Order Amount & Strategy Specific Input Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -242,61 +259,33 @@ fun StrategyControlsCard(
                                 .testTag("input_grid_levels")
                         )
                     }
-                }
-            }
-
-            // Additional Row for GRID strategy: Lower Price & Upper Price
-            if (settings.strategyType == StrategyType.GRID) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    OutlinedTextField(
-                        value = gridLowerPriceText,
-                        onValueChange = {
-                            gridLowerPriceText = it
-                            it.toDoubleOrNull()?.let { price -> onGridLowerPriceChanged(price) }
-                        },
-                        label = { Text("Grid Lower (${settings.quoteCurrency})") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CoinsEmerald,
-                            unfocusedBorderColor = Color(0xFF263246),
-                            focusedLabelColor = CoinsEmerald,
-                            unfocusedLabelColor = TextMuted
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("input_grid_lower_price")
-                    )
-
-                    OutlinedTextField(
-                        value = gridUpperPriceText,
-                        onValueChange = {
-                            gridUpperPriceText = it
-                            it.toDoubleOrNull()?.let { price -> onGridUpperPriceChanged(price) }
-                        },
-                        label = { Text("Grid Upper (${settings.quoteCurrency})") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CoinsEmerald,
-                            unfocusedBorderColor = Color(0xFF263246),
-                            focusedLabelColor = CoinsEmerald,
-                            unfocusedLabelColor = TextMuted
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("input_grid_upper_price")
-                    )
+                    StrategyType.BOLLINGER -> {
+                        OutlinedTextField(
+                            value = takeProfitText,
+                            onValueChange = {
+                                takeProfitText = it
+                                it.toDoubleOrNull()?.let { tp -> onTakeProfitChanged(tp) }
+                            },
+                            label = { Text("Target Profit (%)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CoinsEmerald,
+                                unfocusedBorderColor = Color(0xFF263246),
+                                focusedLabelColor = CoinsEmerald,
+                                unfocusedLabelColor = TextMuted
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("input_bollinger_tp")
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Row 2: Take Profit % & Stop Loss %
+            // Take Profit & Stop Loss Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -342,62 +331,197 @@ fun StrategyControlsCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Trailing Take Profit Control Row
-            Row(
+            // PROFIT & WIN-RATE BOOSTERS SECTION
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF141D2A), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .background(Color(0xFF141D2A), RoundedCornerShape(10.dp))
+                    .padding(12.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.material3.Switch(
-                        checked = settings.trailingTakeProfitEnabled,
-                        onCheckedChange = { onTrailingTakeProfitToggled(it) },
-                        colors = androidx.compose.material3.SwitchDefaults.colors(
-                            checkedThumbColor = Color.Black,
-                            checkedTrackColor = CoinsEmerald
-                        ),
-                        modifier = Modifier.testTag("switch_trailing_tp")
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Trailing Take Profit",
-                        color = TextPrimary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(start = 8.dp)
+                        text = "⚡ PROFIT & WIN-RATE BOOSTERS",
+                        color = CoinsEmerald,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     )
+
+                    // Toggle 1: Smart Entry
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Smart Entry (Wait for Dip/RSI)", color = TextPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = settings.smartEntryEnabled,
+                            onCheckedChange = { onSmartEntryToggled(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
+                            modifier = Modifier.scale(0.8f).testTag("switch_smart_entry")
+                        )
+                    }
+
+                    // Toggle 2: Break-Even Lock
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Break-Even Lock (+1.5% -> +0.3%)", color = TextPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = settings.breakEvenLockEnabled,
+                            onCheckedChange = { onBreakEvenLockToggled(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
+                            modifier = Modifier.scale(0.8f).testTag("switch_breakeven_lock")
+                        )
+                    }
+
+                    // Toggle 3: Green Candle Confirm
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Green Candle Reversal Confirm", color = TextPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = settings.greenCandleConfirmation,
+                            onCheckedChange = { onGreenCandleConfirmationToggled(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
+                            modifier = Modifier.scale(0.8f).testTag("switch_green_candle")
+                        )
+                    }
+
+                    // Toggle 4: Never Sell at Loss (Spot HODL)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Never Sell at a Loss (Spot HODL)", color = TextPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = settings.neverSellAtLoss,
+                            onCheckedChange = { onNeverSellAtLossToggled(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
+                            modifier = Modifier.scale(0.8f).testTag("switch_never_sell_loss")
+                        )
+                    }
+
+                    // Toggle 5: Spread Guard
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Bid-Ask Spread Guard (<= 0.60%)", color = TextPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = settings.spreadGuardEnabled,
+                            onCheckedChange = { onSpreadGuardToggled(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
+                            modifier = Modifier.scale(0.8f).testTag("switch_spread_guard")
+                        )
+                    }
+
+                    // Toggle 6: Crash Trend Filter
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Crash Trend Filter (MA7/MA20)", color = TextPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = settings.crashTrendFilterEnabled,
+                            onCheckedChange = { onCrashTrendFilterToggled(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
+                            modifier = Modifier.scale(0.8f).testTag("switch_crash_filter")
+                        )
+                    }
+
+                    // Toggle 7: 2-Stage Partial TP
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("2-Stage Partial TP (50% Scale-Out + Moonbag)", color = TextPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = settings.partialTakeProfitEnabled,
+                            onCheckedChange = { onPartialTakeProfitToggled(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
+                            modifier = Modifier.scale(0.8f).testTag("switch_partial_tp")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // DCA Multiplier Chips
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("DCA Tranche Multiplier", color = TextMuted, fontSize = 10.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(1.0, 1.25, 1.5).forEach { mult ->
+                                val selected = Math.abs(settings.dcaMultiplier - mult) < 0.05
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            color = if (selected) CoinsEmerald.copy(alpha = 0.25f) else Color(0xFF1B2230),
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                        .clickable { onDcaMultiplierChanged(mult) }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .testTag("chip_dca_multiplier_${mult}")
+                                ) {
+                                    Text(
+                                        text = "${mult}x",
+                                        fontSize = 10.sp,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selected) CoinsEmerald else TextMuted
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Backtest & Auto-Optimizer Action Buttons Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onRunBacktestClicked,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp)
+                        .testTag("btn_run_backtest")
+                ) {
+                    Text("🧪 BACKTEST CURRENT", color = CoinsEmerald, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
 
-                if (settings.trailingTakeProfitEnabled) {
-                    var trailingStopText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.trailingStopPercentage.toString()) }
-                    OutlinedTextField(
-                        value = trailingStopText,
-                        onValueChange = {
-                            trailingStopText = it
-                            it.toDoubleOrNull()?.let { pct -> onTrailingStopPercentageChanged(pct) }
-                        },
-                        label = { Text("Trail Callback (%)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CoinsEmerald,
-                            unfocusedBorderColor = Color(0xFF263246),
-                            focusedLabelColor = CoinsEmerald,
-                            unfocusedLabelColor = TextMuted
-                        ),
-                        modifier = Modifier
-                            .testTag("input_trailing_stop_pct")
-                    )
+                Button(
+                    onClick = onAutoOptimizeClicked,
+                    colors = ButtonDefaults.buttonColors(containerColor = CoinsEmerald, contentColor = Color.Black),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp)
+                        .testTag("btn_auto_optimize")
+                ) {
+                    Text("⚡ AUTO-FIND BEST", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Row 3: Max Capital & Max Daily Loss Limit
+            // Max Capital & Daily Loss Stop
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)

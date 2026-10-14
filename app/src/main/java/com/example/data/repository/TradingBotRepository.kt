@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.Locale
 import java.util.UUID
 
 interface TradingBotRepository {
@@ -50,6 +51,7 @@ interface TradingBotRepository {
     val candlesFlow: Flow<List<CandleStick>>
     val selectedIntervalFlow: Flow<ChartInterval>
     val openPositionsFlow: Flow<List<OpenPosition>>
+    val orderBookFlow: Flow<com.example.data.model.OrderBookSnapshot>
 
     suspend fun setChartInterval(interval: ChartInterval)
     suspend fun updateSettings(settings: BotSettings): Result<Unit>
@@ -65,6 +67,9 @@ interface TradingBotRepository {
     suspend fun cancelAllPendingOrders(): Result<Unit>
     suspend fun manualBuyNow(): Result<Unit>
     suspend fun closeAllPositions(): Result<Unit>
+    suspend fun runQuickBacktest(): Result<com.example.data.model.BacktestResult>
+    suspend fun autoOptimizeStrategy(): Result<com.example.data.model.BacktestResult>
+    suspend fun switchExchangePlatform(platform: com.example.data.model.ExchangePlatform): Result<Unit>
     suspend fun configureLiveCredentials(apiKey: String, secretKey: String): Result<Unit>
     fun hasLiveCredentials(): Boolean
     fun onAppForegrounded()
@@ -86,6 +91,7 @@ class TradingBotRepositoryImpl(
     private val dcaStrategy = DcaStrategy()
     private val rsiStrategy = RsiSwingStrategy()
     private val gridStrategy = GridTradingStrategy()
+    private val bollingerStrategy = com.example.domain.strategy.BollingerBandsStrategy()
 
     private val _botSettings = MutableStateFlow(BotSettings())
     override val botSettingsFlow: Flow<BotSettings> = _botSettings.asStateFlow()
@@ -103,6 +109,9 @@ class TradingBotRepositoryImpl(
 
     private val _portfolio = MutableStateFlow(PortfolioSnapshot())
     override val portfolioFlow: Flow<PortfolioSnapshot> = _portfolio.asStateFlow()
+
+    private val _orderBook = MutableStateFlow(com.example.data.model.OrderBookSnapshot())
+    override val orderBookFlow: Flow<com.example.data.model.OrderBookSnapshot> = _orderBook.asStateFlow()
 
     private val _tradeLogs = MutableStateFlow<List<TradeLog>>(emptyList())
     override val tradeLogsFlow: Flow<List<TradeLog>> = _tradeLogs.asStateFlow()
@@ -125,13 +134,19 @@ class TradingBotRepositoryImpl(
     private var executionJob: Job? = null
     private var tickerPollingJob: Job? = null
     private var isForegrounded = true
+    private val binanceExchangeClient = com.example.domain.exchange.BinanceExchangeClient()
 
     init {
         sharedPreferences?.let { prefs ->
-            val key = prefs.getString("coins_api_key", "") ?: ""
-            val secret = prefs.getString("coins_secret_key", "") ?: ""
-            if (key.isNotBlank() && secret.isNotBlank() && liveExchangeClient is CoinsPhExchangeClient) {
-                liveExchangeClient.setCredentials(key, secret)
+            val coinsKey = prefs.getString("coins_api_key", "") ?: ""
+            val coinsSecret = prefs.getString("coins_secret_key", "") ?: ""
+            if (coinsKey.isNotBlank() && coinsSecret.isNotBlank() && liveExchangeClient is CoinsPhExchangeClient) {
+                liveExchangeClient.setCredentials(coinsKey, coinsSecret)
+            }
+            val binanceKey = prefs.getString("binance_api_key", "") ?: ""
+            val binanceSecret = prefs.getString("binance_secret_key", "") ?: ""
+            if (binanceKey.isNotBlank() && binanceSecret.isNotBlank()) {
+                binanceExchangeClient.setCredentials(binanceKey, binanceSecret)
             }
         }
         coroutineScope.launch {
@@ -144,10 +159,10 @@ class TradingBotRepositoryImpl(
     }
 
     private suspend fun fetchKlinesForActiveSymbol() {
-        val client = getActiveExchangeClient()
+        val client = getMarketDataClient()
         val symbol = _botSettings.value.symbol
         val interval = _selectedInterval.value.code
-        val res = client.getKlines(symbol, interval, 40)
+        val res = client.getKlines(symbol, interval, 120)
         res.onSuccess { klines ->
             _candles.value = klines
         }
@@ -157,11 +172,39 @@ class TradingBotRepositoryImpl(
         tradingDao?.let { dao ->
             val dbSettings = dao.getBotSettings()?.toDomain()
             if (dbSettings != null) {
-                _botSettings.value = dbSettings
+                var restoredSettings: BotSettings = dbSettings
+                sharedPreferences?.let { prefs ->
+                    restoredSettings = restoredSettings.copy(
+                        trailingTakeProfitEnabled = prefs.getBoolean("trailingTakeProfitEnabled", restoredSettings.trailingTakeProfitEnabled),
+                        trailingStopPercentage = prefs.getFloat("trailingStopPercentage", restoredSettings.trailingStopPercentage.toFloat()).toDouble(),
+                        smartEntryEnabled = prefs.getBoolean("smartEntryEnabled", restoredSettings.smartEntryEnabled),
+                        breakEvenLockEnabled = prefs.getBoolean("breakEvenLockEnabled", restoredSettings.breakEvenLockEnabled),
+                        greenCandleConfirmation = prefs.getBoolean("greenCandleConfirmation", restoredSettings.greenCandleConfirmation),
+                        dcaMultiplier = prefs.getFloat("dcaMultiplier", restoredSettings.dcaMultiplier.toFloat()).toDouble(),
+                        exchangePlatform = com.example.data.model.ExchangePlatform.valueOf(prefs.getString("exchangePlatform", restoredSettings.exchangePlatform.name) ?: "COINS_PH"),
+                        partialTakeProfitEnabled = prefs.getBoolean("partialTakeProfitEnabled", restoredSettings.partialTakeProfitEnabled),
+                        partialTakeProfitPercentage = prefs.getFloat("partialTakeProfitPercentage", restoredSettings.partialTakeProfitPercentage.toFloat()).toDouble()
+                    )
+                }
+                _botSettings.value = restoredSettings
                 _botStatus.value = _botStatus.value.copy(
-                    activeSymbol = dbSettings.symbol,
-                    mode = dbSettings.tradingMode
+                    activeSymbol = restoredSettings.symbol,
+                    mode = restoredSettings.tradingMode
                 )
+            } else {
+                sharedPreferences?.let { prefs ->
+                    _botSettings.value = _botSettings.value.copy(
+                        trailingTakeProfitEnabled = prefs.getBoolean("trailingTakeProfitEnabled", false),
+                        trailingStopPercentage = prefs.getFloat("trailingStopPercentage", 1.0f).toDouble(),
+                        smartEntryEnabled = prefs.getBoolean("smartEntryEnabled", false),
+                        breakEvenLockEnabled = prefs.getBoolean("breakEvenLockEnabled", false),
+                        greenCandleConfirmation = prefs.getBoolean("greenCandleConfirmation", false),
+                        dcaMultiplier = prefs.getFloat("dcaMultiplier", 1.0f).toDouble(),
+                        exchangePlatform = com.example.data.model.ExchangePlatform.valueOf(prefs.getString("exchangePlatform", "COINS_PH") ?: "COINS_PH"),
+                        partialTakeProfitEnabled = prefs.getBoolean("partialTakeProfitEnabled", false),
+                        partialTakeProfitPercentage = prefs.getFloat("partialTakeProfitPercentage", 1.8f).toDouble()
+                    )
+                }
             }
             val dbPortfolio = dao.getPortfolioSnapshot()?.toDomain()
             if (dbPortfolio != null) {
@@ -213,11 +256,17 @@ class TradingBotRepositoryImpl(
     }
 
     private fun getActiveExchangeClient(): ExchangeClient {
+        val platform = _botSettings.value.exchangePlatform
         return if (_botSettings.value.tradingMode == TradingMode.LIVE) {
-            liveExchangeClient
+            if (platform == com.example.data.model.ExchangePlatform.BINANCE) binanceExchangeClient else liveExchangeClient
         } else {
             paperExchangeClient
         }
+    }
+
+    private fun getMarketDataClient(): ExchangeClient {
+        val platform = _botSettings.value.exchangePlatform
+        return if (platform == com.example.data.model.ExchangePlatform.BINANCE) binanceExchangeClient else liveExchangeClient
     }
 
     private fun startTickerPolling(symbol: String) {
@@ -227,13 +276,13 @@ class TradingBotRepositoryImpl(
             var pollCount = 0
             while (isActive) {
                 try {
-                    val client = getActiveExchangeClient()
+                    val client = getMarketDataClient()
                     val res = client.getTicker(symbol)
                     res.onSuccess { ticker ->
                         _marketTicker.value = ticker
                         val currentHistory = _priceHistory.value.toMutableList()
                         currentHistory.add(PricePoint(ticker.lastUpdated, ticker.price))
-                        if (currentHistory.size > 50) {
+                        if (currentHistory.size > 1000) {
                             currentHistory.removeAt(0)
                         }
                         _priceHistory.value = currentHistory
@@ -258,6 +307,9 @@ class TradingBotRepositoryImpl(
                     }.onFailure { err ->
                         println("DEBUG getTicker failure: ${err.message}")
                     }
+                    
+                    val orderBookRes = client.getOrderBook(symbol, 5)
+                    orderBookRes.onSuccess { ob -> _orderBook.value = ob }
 
                     pollCount++
                     if (pollCount % 3 == 0) {
@@ -393,6 +445,20 @@ class TradingBotRepositoryImpl(
             tradingMode = _botSettings.value.tradingMode
         )
         addTradeLog(log)
+        return Result.success(Unit)
+    }
+
+    override suspend fun switchExchangePlatform(platform: com.example.data.model.ExchangePlatform): Result<Unit> {
+        val current = _botSettings.value
+        if (current.exchangePlatform == platform) return Result.success(Unit)
+        val newSymbol = if (platform == com.example.data.model.ExchangePlatform.BINANCE) {
+            if (current.symbol.endsWith("PHP")) current.symbol.dropLast(3) + "USDT" else current.symbol
+        } else {
+            if (current.symbol.endsWith("USDT")) current.symbol.dropLast(4) + "PHP" else current.symbol
+        }
+        val newQuote = if (platform == com.example.data.model.ExchangePlatform.BINANCE) "USDT" else "PHP"
+        
+        updateSettings(current.copy(exchangePlatform = platform, symbol = newSymbol, quoteCurrency = newQuote))
         return Result.success(Unit)
     }
 
@@ -569,6 +635,7 @@ class TradingBotRepositoryImpl(
             StrategyType.DCA -> dcaStrategy
             StrategyType.RSI_SWING -> rsiStrategy
             StrategyType.GRID -> gridStrategy
+            StrategyType.BOLLINGER -> bollingerStrategy
         }
 
         val signal = strategy.evaluate(
@@ -576,7 +643,8 @@ class TradingBotRepositoryImpl(
             currentTicker = ticker,
             priceHistory = history,
             openPositions = positions,
-            allocatedCapital = portfolio.allocatedCapital
+            allocatedCapital = portfolio.allocatedCapital,
+            candles = _candles.value
         )
 
         // Risk Manager validation
@@ -778,28 +846,54 @@ class TradingBotRepositoryImpl(
 
     private fun updateOpenPositionsPnl(currentPrice: Double) {
         val positions = _openPositions.value
+        val settings = _botSettings.value
         if (positions.isEmpty()) {
-            if (_botSettings.value.peakPrice != 0.0) {
-                _botSettings.value = _botSettings.value.copy(peakPrice = 0.0)
+            if (settings.peakPrice != 0.0) {
+                _botSettings.value = settings.copy(peakPrice = 0.0)
             }
             return
         }
 
-        val updated = positions.map { pos ->
+        val updated = mutableListOf<OpenPosition>()
+        for (pos in positions) {
             val pnl = (currentPrice - pos.entryPrice) * pos.quantity
             val pct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100.0
-            pos.copy(
+            
+            if (settings.partialTakeProfitEnabled && !pos.partialTpTaken && pct >= settings.partialTakeProfitPercentage) {
+                val halfQty = pos.quantity * 0.5
+                if (halfQty * currentPrice >= 200.0) {
+                    coroutineScope.launch {
+                        val client = getActiveExchangeClient()
+                        val orderRes = client.submitOrder(pos.symbol, "SELL", "MARKET", halfQty, currentPrice, null)
+                        orderRes.onSuccess { execLog ->
+                            addTradeLog(execLog.copy(message = "Partial Take-Profit (50% Scale-Out) locked in! Remaining 50% Moonbag active"))
+                        }
+                    }
+                    val newPos = pos.copy(
+                        quantity = pos.quantity - halfQty,
+                        amountInvested = pos.amountInvested * 0.5,
+                        currentPrice = currentPrice,
+                        unrealizedPnl = (currentPrice - pos.entryPrice) * (pos.quantity - halfQty),
+                        pnlPercentage = pct,
+                        partialTpTaken = true
+                    )
+                    updated.add(newPos)
+                    _botSettings.value = settings.copy(breakEvenActivated = true)
+                    continue
+                }
+            }
+
+            updated.add(pos.copy(
                 currentPrice = currentPrice,
                 unrealizedPnl = pnl,
                 pnlPercentage = pct
-            )
+            ))
         }
         _openPositions.value = updated
 
         val totalUnrealized = updated.sumOf { it.unrealizedPnl }
         _portfolio.value = _portfolio.value.copy(unrealizedPnl = totalUnrealized)
 
-        val settings = _botSettings.value
         if (settings.trailingTakeProfitEnabled) {
             val totalQty = updated.sumOf { it.quantity }
             val totalCost = updated.sumOf { it.amountInvested }
@@ -879,5 +973,245 @@ class TradingBotRepositoryImpl(
         if (log.status == "FILLED" || log.status == "EXECUTED") {
             notificationManager?.notifyTradeExecuted(log)
         }
+    }
+
+    override suspend fun runQuickBacktest(): Result<com.example.data.model.BacktestResult> {
+        val currentSettings = _botSettings.value
+        val interval = _selectedInterval.value.code
+        val client = getMarketDataClient()
+
+        val klinesRes = client.getKlines(currentSettings.symbol, interval, 200)
+        val candlesToTest = if (klinesRes.isSuccess && klinesRes.getOrThrow().isNotEmpty()) {
+            klinesRes.getOrThrow()
+        } else if (_candles.value.isNotEmpty()) {
+            _candles.value
+        } else {
+            emptyList()
+        }
+
+        if (candlesToTest.isEmpty()) {
+            return Result.failure(IllegalStateException("No historical klines available for backtesting"))
+        }
+
+        val result = executeSimulation(currentSettings, interval, candlesToTest)
+        return Result.success(result)
+    }
+
+    override suspend fun autoOptimizeStrategy(): Result<com.example.data.model.BacktestResult> {
+        val client = getMarketDataClient()
+        val currentSettings = _botSettings.value
+        val interval = _selectedInterval.value.code
+
+        val klinesRes = client.getKlines(currentSettings.symbol, interval, 200)
+        val candlesToTest = if (klinesRes.isSuccess && klinesRes.getOrThrow().isNotEmpty()) {
+            klinesRes.getOrThrow()
+        } else if (_candles.value.isNotEmpty()) {
+            _candles.value
+        } else {
+            emptyList()
+        }
+
+        if (candlesToTest.size < 5) {
+            return Result.failure(IllegalStateException("Insufficient klines (${candlesToTest.size}) for auto-optimization"))
+        }
+
+        val minLow = candlesToTest.minOf { it.low }
+        val maxHigh = candlesToTest.maxOf { it.high }
+
+        val candidates = listOf(
+            currentSettings,
+            currentSettings.copy(
+                strategyType = StrategyType.DCA,
+                dipTriggerPercentage = 1.2,
+                takeProfitPercentage = 1.8,
+                trailingTakeProfitEnabled = true,
+                trailingStopPercentage = 0.4,
+                breakEvenLockEnabled = true,
+                dcaMultiplier = 1.25
+            ),
+            currentSettings.copy(
+                strategyType = StrategyType.DCA,
+                dipTriggerPercentage = 2.5,
+                takeProfitPercentage = 4.0,
+                trailingTakeProfitEnabled = true,
+                trailingStopPercentage = 0.8,
+                smartEntryEnabled = true,
+                greenCandleConfirmation = true,
+                dcaMultiplier = 1.5
+            ),
+            currentSettings.copy(
+                strategyType = StrategyType.RSI_SWING,
+                rsiPeriod = 14,
+                takeProfitPercentage = 3.0,
+                stopLossPercentage = 3.0
+            ),
+            currentSettings.copy(
+                strategyType = StrategyType.GRID,
+                gridLevels = 6,
+                gridLowerPrice = minLow * 0.995,
+                gridUpperPrice = maxHigh * 1.005
+            ),
+            currentSettings.copy(
+                strategyType = StrategyType.BOLLINGER,
+                takeProfitPercentage = 2.5,
+                neverSellAtLoss = true,
+                greenCandleConfirmation = true
+            )
+        )
+
+        val bestResult = candidates.map { candidate ->
+            executeSimulation(candidate, interval, candlesToTest)
+        }.maxByOrNull { it.netPnl }
+
+        return if (bestResult != null) {
+            val summary = String.format(
+                Locale.US,
+                "Optimal Strategy: %s | Net PnL: %+.2f %s | Win Rate: %.1f%%",
+                bestResult.strategy.label,
+                bestResult.netPnl,
+                currentSettings.quoteCurrency,
+                bestResult.winRate
+            )
+            Result.success(bestResult.copy(summary = summary))
+        } else {
+            Result.failure(IllegalStateException("Failed to evaluate strategy candidates"))
+        }
+    }
+
+    private fun executeSimulation(
+        settings: BotSettings,
+        interval: String,
+        candlesToTest: List<CandleStick>
+    ): com.example.data.model.BacktestResult {
+        val strategy: TradingStrategy = when (settings.strategyType) {
+            StrategyType.DCA -> dcaStrategy
+            StrategyType.RSI_SWING -> rsiStrategy
+            StrategyType.GRID -> gridStrategy
+            StrategyType.BOLLINGER -> bollingerStrategy
+        }
+
+        val simulatedPositions = mutableListOf<OpenPosition>()
+        val simulatedPriceHistory = mutableListOf<PricePoint>()
+        var simulatedAllocated = 0.0
+        var totalClosedTrades = 0
+        var winningTrades = 0
+        var realizedNetPnl = 0.0
+        var currentSettings = settings.copy(peakPrice = 0.0, breakEvenActivated = false)
+
+        candlesToTest.forEachIndexed { index, candle ->
+            val ticker = MarketTicker(
+                symbol = settings.symbol,
+                baseAsset = settings.baseCurrency,
+                quoteAsset = settings.quoteCurrency,
+                price = candle.close,
+                change24h = 0.0,
+                high24h = candle.high,
+                low24h = candle.low,
+                volume24h = candle.volume,
+                bidPrice = candle.close,
+                askPrice = candle.close,
+                lastUpdated = candle.closeTime
+            )
+
+            simulatedPriceHistory.add(PricePoint(candle.closeTime, candle.close))
+
+            val signal = strategy.evaluate(
+                settings = currentSettings,
+                currentTicker = ticker,
+                priceHistory = simulatedPriceHistory,
+                openPositions = simulatedPositions,
+                allocatedCapital = simulatedAllocated,
+                candles = candlesToTest.subList(0, index + 1)
+            )
+
+            when (signal.action) {
+                SignalAction.BUY -> {
+                    val orderAmt = signal.suggestedAmount ?: currentSettings.orderAmount
+                    val qty = orderAmt / candle.close
+                    val buyFee = orderAmt * 0.0010
+                    val totalCost = orderAmt + buyFee
+
+                    if ((simulatedAllocated + totalCost) <= currentSettings.maxCapital) {
+                        val pos = OpenPosition(
+                            id = "sim_pos_$index",
+                            symbol = currentSettings.symbol,
+                            side = "BUY",
+                            entryPrice = candle.close,
+                            currentPrice = candle.close,
+                            quantity = qty,
+                            amountInvested = totalCost,
+                            unrealizedPnl = 0.0,
+                            pnlPercentage = 0.0,
+                            entryTimestamp = candle.closeTime
+                        )
+                        simulatedPositions.add(pos)
+                        simulatedAllocated += totalCost
+                    }
+                }
+                SignalAction.SELL -> {
+                    if (simulatedPositions.isNotEmpty()) {
+                        val totalQty = simulatedPositions.sumOf { it.quantity }
+                        val totalCost = simulatedPositions.sumOf { it.amountInvested }
+                        val grossProceeds = totalQty * candle.close
+                        val sellFee = grossProceeds * 0.0010
+                        val netProceeds = grossProceeds - sellFee
+                        val tradePnl = netProceeds - totalCost
+
+                        realizedNetPnl += tradePnl
+                        totalClosedTrades++
+                        if (tradePnl > 0.0) winningTrades++
+
+                        simulatedPositions.clear()
+                        simulatedAllocated = 0.0
+                        currentSettings = currentSettings.copy(peakPrice = 0.0)
+                    }
+                }
+                SignalAction.HOLD -> {
+                    if (currentSettings.trailingTakeProfitEnabled && simulatedPositions.isNotEmpty()) {
+                        val totalQty = simulatedPositions.sumOf { it.quantity }
+                        val totalCost = simulatedPositions.sumOf { it.amountInvested }
+                        if (totalQty > 0.0 && totalCost > 0.0) {
+                            val avgEntry = totalCost / totalQty
+                            val profitPct = ((candle.close - avgEntry) / avgEntry) * 100.0
+                            if (profitPct >= currentSettings.takeProfitPercentage) {
+                                val newPeak = maxOf(currentSettings.peakPrice, candle.close)
+                                if (newPeak != currentSettings.peakPrice) {
+                                    currentSettings = currentSettings.copy(peakPrice = newPeak)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        val lastClose = candlesToTest.lastOrNull()?.close ?: 0.0
+        val unrealizedPnl = simulatedPositions.sumOf { pos -> (lastClose * pos.quantity) - pos.amountInvested }
+        val winRate = if (totalClosedTrades > 0) (winningTrades.toDouble() / totalClosedTrades) * 100.0 else 0.0
+        val totalNetPnl = realizedNetPnl + unrealizedPnl
+
+        val summary = String.format(
+            Locale.US,
+            "Simulated %d trades across %d candles: Win Rate %.1f%%, Net PnL %+.2f %s",
+            totalClosedTrades,
+            candlesToTest.size,
+            winRate,
+            totalNetPnl,
+            settings.quoteCurrency
+        )
+
+        return com.example.data.model.BacktestResult(
+            symbol = settings.symbol,
+            strategy = settings.strategyType,
+            interval = interval,
+            candlesTested = candlesToTest.size,
+            totalTrades = totalClosedTrades,
+            winRate = winRate,
+            netPnl = totalNetPnl,
+            summary = summary,
+            openPositionsCount = simulatedPositions.size,
+            unrealizedPnl = unrealizedPnl,
+            recommendedSettings = settings
+        )
     }
 }

@@ -126,6 +126,8 @@ class PaperTradingExchangeClient(
                 val high = t.highPrice?.toDoubleOrNull() ?: price
                 val low = t.lowPrice?.toDoubleOrNull() ?: price
                 val vol = t.volume?.toDoubleOrNull() ?: 0.0
+                val bid = t.bidPrice?.toDoubleOrNull() ?: price
+                val ask = t.askPrice?.toDoubleOrNull() ?: price
                 val (base, quote) = splitSymbol(symbol)
 
                 Result.success(
@@ -137,7 +139,9 @@ class PaperTradingExchangeClient(
                         change24h = change,
                         high24h = high,
                         low24h = low,
-                        volume24h = vol
+                        volume24h = vol,
+                        bidPrice = bid,
+                        askPrice = ask
                     )
                 )
             } else {
@@ -168,6 +172,29 @@ class PaperTradingExchangeClient(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    override suspend fun getOrderBook(
+        symbol: String,
+        limit: Int
+    ): Result<com.example.data.model.OrderBookSnapshot> {
+        val basePrice = getTicker(symbol).getOrNull()?.price ?: 5000000.0
+        val bids = (1..limit).map { i -> com.example.data.model.OrderBookEntry(basePrice * (1.0 - i * 0.001), 0.5 * i) }
+        val asks = (1..limit).map { i -> com.example.data.model.OrderBookEntry(basePrice * (1.0 + i * 0.001), 0.5 * i) }
+        val totalBidQty = bids.sumOf { it.quantity }
+        val totalAskQty = asks.sumOf { it.quantity }
+        val totalVol = totalBidQty + totalAskQty
+        val buyPressure = if (totalVol > 0) (totalBidQty / totalVol) * 100.0 else 50.0
+
+        return Result.success(
+            com.example.data.model.OrderBookSnapshot(
+                symbol = symbol,
+                bids = bids,
+                asks = asks,
+                buyPressurePercent = buyPressure,
+                spreadPercent = 0.2
+            )
+        )
     }
 
     override suspend fun getKlines(

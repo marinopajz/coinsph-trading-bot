@@ -40,72 +40,126 @@ import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
 @Composable
 fun HeaderStatusCard(
     status: BotRuntimeStatus,
     activeSymbol: String,
+    exchangePlatform: com.example.data.model.ExchangePlatform,
     availableSymbols: List<CoinsSymbolInfo>,
     onSymbolSelected: (String) -> Unit,
+    onExchangePlatformSelected: (com.example.data.model.ExchangePlatform) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showSymbolDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(bottom = 4.dp)
             .testTag("header_status_card")
     ) {
-        // Exchange Connection Status
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
+        // Exchange Switcher & Connection Status
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (status.exchangeConnected) CoinsEmerald else LossRed)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (status.exchangeConnected) "${exchangePlatform.displayName} Spot API Connected" else "${exchangePlatform.displayName} API Disconnected",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    fontSize = 11.sp
+                )
+            }
+
+            // Platform Switcher
+            Row(
                 modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(if (status.exchangeConnected) CoinsEmerald else LossRed)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = if (status.exchangeConnected) "Coins.ph Spot API Connected" else "Coins.ph API Disconnected",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
-                fontSize = 11.sp
-            )
+                    .background(Color(0xFF1B2230), RoundedCornerShape(20.dp))
+                    .padding(2.dp)
+            ) {
+                com.example.data.model.ExchangePlatform.values().forEach { platform ->
+                    val selected = exchangePlatform == platform
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = if (selected) CoinsEmerald else Color.Transparent,
+                                shape = RoundedCornerShape(18.dp)
+                            )
+                            .clickable { onExchangePlatformSelected(platform) }
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .testTag("platform_switcher_${platform.name}")
+                    ) {
+                        Text(
+                            text = platform.displayName.uppercase(),
+                            color = if (selected) Color.Black else TextMuted,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
         }
         
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Symbol Selection Row
-        Text(
-            text = "MARKET PAIR",
-            style = MaterialTheme.typography.labelSmall,
-            color = TextMuted,
-            letterSpacing = 0.8.sp,
-            fontSize = 10.sp
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        // Searchable Market Dropdown Button
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF141D2A), RoundedCornerShape(8.dp))
+                .clickable { showSymbolDialog = true }
+                .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
-            items(availableSymbols) { sym ->
-                val isSelected = sym.symbol.equals(activeSymbol, ignoreCase = true)
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { onSymbolSelected(sym.symbol) },
-                    label = {
-                        Text(
-                            text = sym.symbol,
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            fontSize = 12.sp
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = CoinsEmerald,
-                        selectedLabelColor = Color(0xFF002919),
-                        containerColor = Color(0xFF1B2230),
-                        labelColor = TextPrimary
-                    ),
-                    modifier = Modifier.testTag("symbol_chip_${sym.symbol}")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "🪙",
+                        fontSize = 16.sp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = activeSymbol,
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "▼",
+                        color = TextMuted,
+                        fontSize = 10.sp
+                    )
+                }
+                Text(
+                    text = "Search / Switch Market",
+                    color = TextMuted,
+                    fontSize = 11.sp
                 )
             }
         }
@@ -134,6 +188,128 @@ fun HeaderStatusCard(
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = 11.sp
                     )
+                }
+            }
+        }
+    }
+
+    if (showSymbolDialog) {
+        var searchQuery by remember { mutableStateOf("") }
+        var filterCategory by remember { mutableStateOf("ALL") }
+
+        Dialog(
+            onDismissRequest = { showSymbolDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .fillMaxHeight(0.8f),
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF1B2230)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Select Market Pair",
+                        color = CoinsEmerald,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it.uppercase() },
+                        placeholder = { Text("Search pair (e.g. BTC, XRP)...", color = TextMuted) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CoinsEmerald,
+                            unfocusedBorderColor = Color(0xFF263246),
+                            focusedTextColor = TextPrimary
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("ALL", "PHP", "USDT", "FX").forEach { cat ->
+                            val selected = filterCategory == cat
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        if (selected) CoinsEmerald.copy(alpha = 0.2f) else Color.Transparent,
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable { filterCategory = cat }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = cat,
+                                    fontSize = 10.sp,
+                                    color = if (selected) CoinsEmerald else TextMuted,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val filteredSymbols = availableSymbols.filter {
+                        val matchesSearch = it.symbol.contains(searchQuery, ignoreCase = true)
+                        val matchesCat = when (filterCategory) {
+                            "PHP" -> it.symbol.endsWith("PHP")
+                            "USDT" -> it.symbol.endsWith("USDT")
+                            "FX" -> it.symbol.endsWith("USDT") && (it.symbol.startsWith("EUR") || it.symbol.startsWith("PAXG"))
+                            else -> true
+                        }
+                        matchesSearch && matchesCat
+                    }
+
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(filteredSymbols) { sym ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onSymbolSelected(sym.symbol)
+                                        showSymbolDialog = false
+                                    }
+                                    .padding(vertical = 12.dp)
+                                    .testTag("symbol_chip_${sym.symbol}"),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = sym.symbol,
+                                    color = if (sym.symbol.equals(activeSymbol, ignoreCase = true)) CoinsEmerald else TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                val base = if (sym.symbol.endsWith("PHP")) sym.symbol.dropLast(3) else sym.symbol.dropLast(4)
+                                val quote = sym.symbol.drop(base.length)
+                                Text(
+                                    text = "$base / $quote",
+                                    color = TextMuted,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showSymbolDialog = false }
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("CANCEL", color = TextMuted, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }

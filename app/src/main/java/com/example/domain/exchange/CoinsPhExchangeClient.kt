@@ -129,6 +129,8 @@ class CoinsPhExchangeClient(
                 val high = t.highPrice?.toDoubleOrNull() ?: price
                 val low = t.lowPrice?.toDoubleOrNull() ?: price
                 val vol = t.volume?.toDoubleOrNull() ?: 0.0
+                val bid = t.bidPrice?.toDoubleOrNull() ?: price
+                val ask = t.askPrice?.toDoubleOrNull() ?: price
                 val (base, quote) = splitSymbol(symbol)
 
                 Result.success(
@@ -140,7 +142,9 @@ class CoinsPhExchangeClient(
                         change24h = change,
                         high24h = high,
                         low24h = low,
-                        volume24h = vol
+                        volume24h = vol,
+                        bidPrice = bid,
+                        askPrice = ask
                     )
                 )
             } else {
@@ -186,6 +190,47 @@ class CoinsPhExchangeClient(
                 Result.success(candles)
             } else {
                 Result.failure(Exception("Failed to fetch klines for $symbol: HTTP ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getOrderBook(
+        symbol: String,
+        limit: Int
+    ): Result<com.example.data.model.OrderBookSnapshot> {
+        return try {
+            val res = apiService.getOrderBook(symbol, limit)
+            if (res.isSuccessful && res.body() != null) {
+                val body = res.body()!!
+                val mappedBids = body.bids.take(limit).mapNotNull {
+                    if (it.size >= 2) com.example.data.model.OrderBookEntry(it[0].toDoubleOrNull() ?: 0.0, it[1].toDoubleOrNull() ?: 0.0) else null
+                }
+                val mappedAsks = body.asks.take(limit).mapNotNull {
+                    if (it.size >= 2) com.example.data.model.OrderBookEntry(it[0].toDoubleOrNull() ?: 0.0, it[1].toDoubleOrNull() ?: 0.0) else null
+                }
+                
+                val totalBidQty = mappedBids.sumOf { it.quantity }
+                val totalAskQty = mappedAsks.sumOf { it.quantity }
+                val totalVol = totalBidQty + totalAskQty
+                val buyPressure = if (totalVol > 0) (totalBidQty / totalVol) * 100.0 else 50.0
+
+                val bestBid = mappedBids.maxByOrNull { it.price }?.price ?: 0.0
+                val bestAsk = mappedAsks.minByOrNull { it.price }?.price ?: 0.0
+                val spread = if (bestBid > 0.0 && bestAsk > bestBid) ((bestAsk - bestBid) / bestBid) * 100.0 else 0.0
+
+                Result.success(
+                    com.example.data.model.OrderBookSnapshot(
+                        symbol = symbol,
+                        bids = mappedBids,
+                        asks = mappedAsks,
+                        buyPressurePercent = buyPressure,
+                        spreadPercent = spread
+                    )
+                )
+            } else {
+                Result.failure(Exception("Order book error: HTTP ${res.code()}"))
             }
         } catch (e: Exception) {
             Result.failure(e)

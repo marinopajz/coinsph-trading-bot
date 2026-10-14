@@ -22,6 +22,11 @@ interface ExchangeClient {
         limit: Int = 40
     ): Result<List<CandleStick>>
 
+    suspend fun getOrderBook(
+        symbol: String,
+        limit: Int = 5
+    ): Result<com.example.data.model.OrderBookSnapshot> = Result.success(com.example.data.model.OrderBookSnapshot(symbol = symbol))
+
     suspend fun submitOrder(
         symbol: String,
         side: String, // "BUY" or "SELL"

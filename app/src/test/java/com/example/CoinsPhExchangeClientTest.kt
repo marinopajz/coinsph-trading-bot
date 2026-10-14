@@ -36,6 +36,7 @@ class CoinsPhExchangeClientTest {
         var lastPrice: String? = null
         var lastTimestamp: Long? = null
         var lastSignature: String? = null
+        var klinesResponse: Response<List<List<Any>>>? = null
 
         override suspend fun getServerTime(): Response<CoinsServerTime> =
             Response.success(CoinsServerTime(1700000000000L))
@@ -71,10 +72,19 @@ class CoinsPhExchangeClientTest {
             interval: String,
             limit: Int
         ): Response<List<List<Any>>> {
-            val sampleKlines = listOf(
-                listOf(1700000000000L, "5000000.0", "5100000.0", "4950000.0", "5050000.0", "12.5", 1700000300000L)
-            )
+            klinesResponse?.let { return it }
+            val count = if (limit <= 10) 1 else limit.coerceAtMost(20)
+            val sampleKlines = (0 until count).map { i ->
+                listOf(1700000000000L + i * 300000L, "5000000.0", "5100000.0", "4950000.0", "5050000.0", "12.5", 1700000300000L + i * 300000L)
+            }
             return Response.success(sampleKlines)
+        }
+
+        override suspend fun getOrderBook(
+            symbol: String,
+            limit: Int
+        ): Response<com.example.data.model.CoinsOrderBookResponse> {
+            return Response.success(com.example.data.model.CoinsOrderBookResponse())
         }
 
         override suspend fun testOrder(

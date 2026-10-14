@@ -309,4 +309,173 @@ class TradingStrategyUnitTest {
         assertTrue("Order should be Rejected when recent log is a filled BUY", rejectedResult is RiskCheckResult.Rejected)
         assertTrue((rejectedResult as RiskCheckResult.Rejected).reason.contains("Duplicate order cooldown active"))
     }
+
+    @Test
+    fun dcaStrategy_breakEvenLock_triggersSellWhenProfitPullbackToPointThreePercent() {
+        val strategy = DcaStrategy()
+        val openPos = OpenPosition(
+            id = "pos_be",
+            symbol = "BTCPHP",
+            entryPrice = 5000000.0,
+            currentPrice = 5010000.0,
+            quantity = 0.0002,
+            amountInvested = 1000.0,
+            unrealizedPnl = 2.0,
+            pnlPercentage = 0.20,
+            entryTimestamp = System.currentTimeMillis() - 60000
+        )
+
+        val settingsBE = defaultSettings.copy(
+            breakEvenLockEnabled = true,
+            breakEvenActivated = true
+        )
+
+        val signal = strategy.evaluate(
+            settings = settingsBE,
+            currentTicker = defaultTicker.copy(price = 5010000.0),
+            priceHistory = emptyList(),
+            openPositions = listOf(openPos),
+            allocatedCapital = 1000.0
+        )
+
+        assertEquals(SignalAction.SELL, signal.action)
+        assertTrue(signal.reason.contains("Break-Even Lock triggered"))
+    }
+
+    @Test
+    fun dcaStrategy_dcaMultiplier_scalesSubsequentTrancheOrderAmount() {
+        val strategy = DcaStrategy()
+        val openPos1 = OpenPosition(
+            id = "pos_1",
+            symbol = "BTCPHP",
+            entryPrice = 5000000.0,
+            currentPrice = 4800000.0,
+            quantity = 0.0002,
+            amountInvested = 1000.0,
+            unrealizedPnl = -40.0,
+            pnlPercentage = -4.0,
+            entryTimestamp = System.currentTimeMillis() - 60000
+        )
+
+        val settingsMulti = defaultSettings.copy(
+            orderAmount = 1000.0,
+            dipTriggerPercentage = 2.5,
+            dcaMultiplier = 1.5,
+            stopLossPercentage = 10.0,
+            maxCapital = 10000.0,
+            maxOrderValue = 5000.0
+        )
+
+        val dippedTicker = defaultTicker.copy(price = 4800000.0)
+        val signal = strategy.evaluate(
+            settings = settingsMulti,
+            currentTicker = dippedTicker,
+            priceHistory = emptyList(),
+            openPositions = listOf(openPos1),
+            allocatedCapital = 1000.0
+        )
+
+        assertEquals(SignalAction.BUY, signal.action)
+        assertEquals(1500.0, signal.suggestedAmount!!, 0.01)
+    }
+
+    @Test
+    fun bollingerBandsStrategy_triggersBuyOnLowerBandBounceAndSellOnMeanReversion() {
+        val strategy = com.example.domain.strategy.BollingerBandsStrategy()
+        val prices = (1..20).map { 5000000.0 }
+        val pricePoints = prices.mapIndexed { i, pr -> PricePoint(i.toLong(), pr) }
+
+        val lowTicker = defaultTicker.copy(price = 4800000.0)
+        val buySignal = strategy.evaluate(
+            settings = defaultSettings.copy(strategyType = StrategyType.BOLLINGER),
+            currentTicker = lowTicker,
+            priceHistory = pricePoints,
+            openPositions = emptyList(),
+            allocatedCapital = 0.0
+        )
+        assertEquals(SignalAction.BUY, buySignal.action)
+        assertTrue(buySignal.reason.contains("Bollinger Lower Band bounce"))
+
+        val openPos = OpenPosition(
+            id = "pos_boll",
+            symbol = "BTCPHP",
+            entryPrice = 4800000.0,
+            currentPrice = 5020000.0,
+            quantity = 0.0002,
+            amountInvested = 960.0,
+            unrealizedPnl = 44.0,
+            pnlPercentage = 4.58,
+            entryTimestamp = System.currentTimeMillis() - 60000
+        )
+
+        val highTicker = defaultTicker.copy(price = 5020000.0)
+        val sellSignal = strategy.evaluate(
+            settings = defaultSettings.copy(strategyType = StrategyType.BOLLINGER),
+            currentTicker = highTicker,
+            priceHistory = pricePoints,
+            openPositions = listOf(openPos),
+            allocatedCapital = 960.0
+        )
+        assertEquals(SignalAction.SELL, sellSignal.action)
+        assertTrue(sellSignal.reason.contains("Bollinger Mean-Reversion exit"))
+    }
+
+    @Test
+    fun dcaStrategy_neverSellAtLoss_suppressesStopLossDuringDrawdown() {
+        val strategy = DcaStrategy()
+        val openPos = OpenPosition(
+            id = "pos_drawdown",
+            symbol = "BTCPHP",
+            entryPrice = 5000000.0,
+            currentPrice = 4500000.0,
+            quantity = 0.0002,
+            amountInvested = 1000.0,
+            unrealizedPnl = -100.0,
+            pnlPercentage = -10.0,
+            entryTimestamp = System.currentTimeMillis() - 60000
+        )
+
+        val settingsHodl = defaultSettings.copy(
+            stopLossPercentage = 3.5,
+            neverSellAtLoss = true
+        )
+
+        val crashedTicker = defaultTicker.copy(price = 4500000.0)
+        val signal = strategy.evaluate(
+            settings = settingsHodl,
+            currentTicker = crashedTicker,
+            priceHistory = emptyList(),
+            openPositions = listOf(openPos),
+            allocatedCapital = 1000.0
+        )
+
+        assertEquals("Spot HODL Guard should suppress Stop-Loss and HOLD", SignalAction.HOLD, signal.action)
+        assertTrue(signal.reason.contains("Spot HODL Guard active"))
+    }
+
+    @Test
+    fun spreadGuard_blocksBuyWhenSpreadExceedsMaxSpreadPercentage() {
+        val strategy = DcaStrategy()
+        val highSpreadTicker = defaultTicker.copy(
+            price = 5000000.0,
+            bidPrice = 5000000.0,
+            askPrice = 5050000.0
+        )
+
+        val settingsSpread = defaultSettings.copy(
+            spreadGuardEnabled = true,
+            maxSpreadPercentage = 0.60
+        )
+
+        val signal = strategy.evaluate(
+            settings = settingsSpread,
+            currentTicker = highSpreadTicker,
+            priceHistory = emptyList(),
+            openPositions = emptyList(),
+            allocatedCapital = 0.0
+        )
+
+        assertEquals(SignalAction.HOLD, signal.action)
+        assertTrue(signal.reason.contains("Spread Guard blocked BUY"))
+    }
 }

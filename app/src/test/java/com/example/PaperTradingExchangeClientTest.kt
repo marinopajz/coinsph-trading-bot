@@ -86,6 +86,13 @@ class FakeCoinsPhApiService : CoinsPhApiService {
         return tickerPriceResponse ?: Response.success(CoinsTickerPrice(symbol ?: "BTCPHP", "5000000.0"))
     }
 
+    override suspend fun getOrderBook(
+        symbol: String,
+        limit: Int
+    ): Response<com.example.data.model.CoinsOrderBookResponse> {
+        return Response.success(com.example.data.model.CoinsOrderBookResponse())
+    }
+
     override suspend fun get24HrTicker(symbol: String?): Response<Coins24HrTicker> {
         return ticker24HrResponse ?: Response.success(
             Coins24HrTicker(

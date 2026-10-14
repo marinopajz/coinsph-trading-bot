@@ -73,10 +73,17 @@ class TradingBotRepositoryLifecycleTest {
             interval: String,
             limit: Int
         ): Response<List<List<Any>>> {
-            val sampleKlines = listOf(
-                listOf(1700000000000L, "5000000.0", "5100000.0", "4950000.0", "5050000.0", "12.5", 1700000300000L)
-            )
+            val sampleKlines = (0 until limit.coerceAtMost(20)).map { i ->
+                listOf(1700000000000L + i * 300000L, "5000000.0", "5100000.0", "4950000.0", "5050000.0", "12.5", 1700000300000L + i * 300000L)
+            }
             return Response.success(sampleKlines)
+        }
+
+        override suspend fun getOrderBook(
+            symbol: String,
+            limit: Int
+        ): Response<com.example.data.model.CoinsOrderBookResponse> {
+            return Response.success(com.example.data.model.CoinsOrderBookResponse())
         }
 
         override suspend fun testOrder(
@@ -445,6 +452,36 @@ class TradingBotRepositoryLifecycleTest {
     }
 
     @Test
+    fun switchExchangePlatform_switchesToBinanceAndUpdatesDefaultSymbol() = runTest {
+        val fakeDao = FakeTradingDao()
+        val client = PaperTradingExchangeClient(
+            apiService = fakeApiService,
+            initialPhpBalance = 50000.0,
+            initialUsdtBalance = 1000.0,
+            tradingDao = fakeDao
+        )
+        val repo = TradingBotRepositoryImpl(
+            paperExchangeClient = client,
+            liveExchangeClient = client,
+            tradingDao = fakeDao,
+            coroutineScope = backgroundScope
+        )
+        testScheduler.runCurrent()
+
+        assertEquals("BTCPHP", repo.botSettingsFlow.first().symbol)
+        assertEquals(com.example.data.model.ExchangePlatform.COINS_PH, repo.botSettingsFlow.first().exchangePlatform)
+
+        val switchRes = repo.switchExchangePlatform(com.example.data.model.ExchangePlatform.BINANCE)
+        testScheduler.runCurrent()
+
+        assertTrue(switchRes.isSuccess)
+        val updatedSettings = repo.botSettingsFlow.first()
+        assertEquals(com.example.data.model.ExchangePlatform.BINANCE, updatedSettings.exchangePlatform)
+        assertEquals("BTCUSDT", updatedSettings.symbol)
+        assertEquals("USDT", updatedSettings.quoteCurrency)
+    }
+
+    @Test
     fun manualBuyNow_and_closeAllPositions_executeAccurately() = runTest {
         val fakeDao = FakeTradingDao()
         fakeDao.savePaperBalance(PaperBalanceEntity("PHP", 50000.0))
@@ -478,5 +515,60 @@ class TradingBotRepositoryLifecycleTest {
 
         val updatedPositions = repo.openPositionsFlow.first()
         assertTrue("Open positions should be empty after closeAllPositions", updatedPositions.isEmpty())
+    }
+
+    @Test
+    fun runQuickBacktest_executesAndReturnsValidBacktestResult() = runTest {
+        val fakeDao = FakeTradingDao()
+        val client = PaperTradingExchangeClient(
+            apiService = fakeApiService,
+            initialPhpBalance = 50000.0,
+            initialUsdtBalance = 1000.0,
+            tradingDao = fakeDao
+        )
+        val repo = TradingBotRepositoryImpl(
+            paperExchangeClient = client,
+            liveExchangeClient = client,
+            tradingDao = fakeDao,
+            coroutineScope = backgroundScope
+        )
+
+        testScheduler.runCurrent()
+
+        val backtestRes = repo.runQuickBacktest()
+        assertTrue("runQuickBacktest should succeed", backtestRes.isSuccess)
+
+        val result = backtestRes.getOrThrow()
+        assertEquals("BTCPHP", result.symbol)
+        assertTrue(result.candlesTested > 0)
+        assertTrue(result.summary.contains("candles"))
+    }
+
+    @Test
+    fun autoOptimizeStrategy_evaluatesCandidatesAndReturnsRecommendedSettings() = runTest {
+        val fakeDao = FakeTradingDao()
+        val client = PaperTradingExchangeClient(
+            apiService = fakeApiService,
+            initialPhpBalance = 50000.0,
+            initialUsdtBalance = 1000.0,
+            tradingDao = fakeDao
+        )
+        val repo = TradingBotRepositoryImpl(
+            paperExchangeClient = client,
+            liveExchangeClient = client,
+            tradingDao = fakeDao,
+            coroutineScope = backgroundScope
+        )
+
+        testScheduler.runCurrent()
+
+        val optimizeRes = repo.autoOptimizeStrategy()
+        assertTrue("autoOptimizeStrategy should succeed", optimizeRes.isSuccess)
+
+        val result = optimizeRes.getOrThrow()
+        assertEquals("BTCPHP", result.symbol)
+        assertTrue("candlesTested should be greater than 0", result.candlesTested > 0)
+        org.junit.Assert.assertNotNull("recommendedSettings should be populated", result.recommendedSettings)
+        assertTrue(result.summary.contains("Optimal"))
     }
 }

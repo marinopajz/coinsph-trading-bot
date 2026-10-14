@@ -41,6 +41,7 @@ data class DashboardUiState(
     val marketTicker: MarketTicker? = null,
     val priceHistory: List<PricePoint> = emptyList(),
     val candles: List<CandleStick> = emptyList(),
+    val orderBook: com.example.data.model.OrderBookSnapshot = com.example.data.model.OrderBookSnapshot(),
     val chartType: ChartType = ChartType.CANDLE,
     val chartInterval: ChartInterval = ChartInterval.FIVE_MIN,
     val openPositions: List<OpenPosition> = emptyList(),
@@ -50,6 +51,7 @@ data class DashboardUiState(
     val showLiveConfirmDialog: Boolean = false,
     val showApiCredentialsDialog: Boolean = false,
     val hasLiveCredentials: Boolean = false,
+    val lastBacktestResult: com.example.data.model.BacktestResult? = null,
     val errorMessage: String? = null,
     val snackbarMessage: String? = null
 )
@@ -84,14 +86,26 @@ class BotDashboardViewModel(
                 CoinsSymbolInfo("ETHPHP", "TRADING", "ETH", "PHP", true),
                 CoinsSymbolInfo("XRPPHP", "TRADING", "XRP", "PHP", true),
                 CoinsSymbolInfo("SOLPHP", "TRADING", "SOL", "PHP", true),
+                CoinsSymbolInfo("USDT/PHP", "TRADING", "USDT", "PHP", true),
+                CoinsSymbolInfo("USDC/PHP", "TRADING", "USDC", "PHP", true),
                 CoinsSymbolInfo("BTCUSDT", "TRADING", "BTC", "USDT", true),
                 CoinsSymbolInfo("ETHUSDT", "TRADING", "ETH", "USDT", true),
                 CoinsSymbolInfo("SOLUSDT", "TRADING", "SOL", "USDT", true),
+                CoinsSymbolInfo("XRPUSDT", "TRADING", "XRP", "USDT", true),
+                CoinsSymbolInfo("BNBUSDT", "TRADING", "BNB", "USDT", true),
+                CoinsSymbolInfo("PAXGUSDT", "TRADING", "PAXG", "USDT", true),
+                CoinsSymbolInfo("EURUSDT", "TRADING", "EUR", "USDT", true),
                 CoinsSymbolInfo("BTCUSDC", "TRADING", "BTC", "USDC", true)
             )
             val rawSymbols = symbolsRes.getOrDefault(defaultSymbols)
 
-            val priorityOrder = listOf("BTCPHP", "ETHPHP", "XRPPHP", "SOLPHP", "BTCUSDT", "ETHUSDT", "SOLUSDT", "BTCUSDC")
+            val isBinance = _uiState.value.botSettings.exchangePlatform == com.example.data.model.ExchangePlatform.BINANCE
+            val priorityOrder = if (isBinance) {
+                listOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "PAXGUSDT", "EURUSDT")
+            } else {
+                listOf("BTCPHP", "ETHPHP", "XRPPHP", "SOLPHP", "USDC/PHP", "USDT/PHP")
+            }
+
             val sortedSymbols = rawSymbols.sortedWith { a, b ->
                 val indexA = priorityOrder.indexOf(a.symbol.uppercase())
                 val indexB = priorityOrder.indexOf(b.symbol.uppercase())
@@ -127,6 +141,11 @@ class BotDashboardViewModel(
         viewModelScope.launch {
             repository.portfolioFlow.collect { port ->
                 _uiState.update { it.copy(portfolio = port) }
+            }
+        }
+        viewModelScope.launch {
+            repository.orderBookFlow.collect { ob ->
+                _uiState.update { it.copy(orderBook = ob) }
             }
         }
         viewModelScope.launch {
@@ -264,6 +283,105 @@ class BotDashboardViewModel(
         updateSettings(current.copy(trailingStopPercentage = pct))
     }
 
+    fun onSmartEntryToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(smartEntryEnabled = enabled))
+    }
+
+    fun onBreakEvenLockToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(breakEvenLockEnabled = enabled))
+    }
+
+    fun onGreenCandleConfirmationToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(greenCandleConfirmation = enabled))
+    }
+
+    fun onDcaMultiplierChanged(multiplier: Double) {
+        if (multiplier < 1.0) return
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(dcaMultiplier = multiplier))
+    }
+
+    fun onNeverSellAtLossToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(neverSellAtLoss = enabled))
+    }
+
+    fun onSpreadGuardToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(spreadGuardEnabled = enabled))
+    }
+
+    fun onCrashTrendFilterToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(crashTrendFilterEnabled = enabled))
+    }
+
+    fun onRunBacktestClicked() {
+        if (_uiState.value.isOperationInProgress) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isOperationInProgress = true) }
+            val res = repository.runQuickBacktest()
+            res.onSuccess { backtest ->
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        lastBacktestResult = backtest
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        errorMessage = "Backtest failed: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun onAutoOptimizeClicked() {
+        if (_uiState.value.isOperationInProgress) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isOperationInProgress = true) }
+            val res = repository.autoOptimizeStrategy()
+            res.onSuccess { backtest ->
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        lastBacktestResult = backtest
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        errorMessage = "Auto-Optimization failed: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun onApplyRecommendedSettings(settings: BotSettings) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSavingSettings = true, lastBacktestResult = null) }
+            repository.updateSettings(settings)
+            _uiState.update {
+                it.copy(
+                    isSavingSettings = false,
+                    snackbarMessage = "Applied optimal ${settings.strategyType.label} settings"
+                )
+            }
+        }
+    }
+
+    fun onDismissBacktestResult() {
+        _uiState.update { it.copy(lastBacktestResult = null) }
+    }
+
     private fun updateSettings(settings: BotSettings) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSavingSettings = true) }
@@ -294,6 +412,18 @@ class BotDashboardViewModel(
                 }
             }
         }
+    }
+
+    fun onExchangePlatformSelected(platform: com.example.data.model.ExchangePlatform) {
+        viewModelScope.launch {
+            repository.switchExchangePlatform(platform)
+            loadInitialData()
+        }
+    }
+
+    fun onPartialTakeProfitToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(partialTakeProfitEnabled = enabled))
     }
 
     fun onPauseBotClicked() {
