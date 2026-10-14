@@ -1,0 +1,6 @@
+{
+  "name": "Coins.ph Trading Bot",
+  "description": "Autonomous crypto spot trading bot and dashboard for Coins.ph with Paper and Live trading modes, DCA, RSI Swing, and Grid strategies.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

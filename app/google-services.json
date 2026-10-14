@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "131549267212",
+    "project_id": "coinsph-trading-bot",
+    "storage_bucket": "coinsph-trading-bot.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:131549267212:android:919a71765c75f1a2d23529",
+        "android_client_info": {
+          "package_name": "com.aistudio.coinsbot.trdxpy"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "131549267212-o4qot45n7pl1ednkklj1bsoctn3fphps.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.coinsbot.trdxpy",
+            "certificate_hash": "ac98a9512d85d7497f770753096e11166963cde3"
+          }
+        },
+        {
+          "client_id": "131549267212-jhpbugvjotd4ea7ankt4ojin5v6joqee.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB_SoNq5mKo26z2UvgJfKCCvhYsvIAmbcw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "131549267212-jhpbugvjotd4ea7ankt4ojin5v6joqee.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

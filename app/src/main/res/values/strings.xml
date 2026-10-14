@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Coins.ph Trading Bot</string>
+    <string name="bot_status_running">RUNNING</string>
+    <string name="bot_status_paused">PAUSED</string>
+    <string name="bot_status_stopped">STOPPED</string>
+    <string name="mode_paper">PAPER TRADING</string>
+    <string name="mode_live">LIVE TRADING</string>
+</resources>

@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // Bot settings: User can read and update their trading configuration
+      match /bot_settings/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Authoritative state collections: Read-only for client to prevent arbitrary PnL / balance tampering
+      match /bot_status/{docId} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Only backend service account with Admin SDK can mutate
+      }
+
+      match /trade_logs/{docId} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Only backend service account can write authoritative executions
+      }
+
+      match /portfolio/{docId} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Authoritative portfolio calculations performed server-side
+      }
+    }
+  }
+}
