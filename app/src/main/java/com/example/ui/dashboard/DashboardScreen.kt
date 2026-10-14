@@ -1,5 +1,7 @@
 package com.example.ui.dashboard
 
+import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,8 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -23,7 +27,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -42,17 +50,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import android.content.Intent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.BotState
 import com.example.data.model.TradingMode
 import com.example.ui.dashboard.components.ActivityFeedList
 import com.example.ui.dashboard.components.BotActionsBar
@@ -64,20 +69,25 @@ import com.example.ui.dashboard.components.QuickStatsGrid
 import com.example.ui.dashboard.components.StrategyControlsCard
 import com.example.ui.theme.CoinsEmerald
 import com.example.ui.theme.CryptoBackground
+import com.example.ui.theme.LiveBadgeBg
+import com.example.ui.theme.LiveBadgeText
 import com.example.ui.theme.LossRed
+import com.example.ui.theme.PaperBadgeBg
+import com.example.ui.theme.PaperBadgeText
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.WarningAmber
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material3.IconButton
-import com.example.data.model.BotState
-import com.example.ui.theme.LiveBadgeBg
-import com.example.ui.theme.LiveBadgeText
-import com.example.ui.theme.PaperBadgeBg
-import com.example.ui.theme.PaperBadgeText
+enum class DashboardTab(val label: String, val iconText: String) {
+    MARKET("Market", "📈"),
+    BOT("Bot & Strategy", "🤖"),
+    PORTFOLIO("Portfolio", "💼"),
+    LOGS("History", "📜")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +100,7 @@ fun DashboardScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    var selectedTab by remember { mutableStateOf(DashboardTab.MARKET) }
 
     val totalQty = uiState.openPositions.sumOf { it.quantity }
     val totalCost = uiState.openPositions.sumOf { it.amountInvested }
@@ -117,7 +128,7 @@ fun DashboardScreen(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "COINS.PH",
+                                text = uiState.botSettings.exchangePlatform.displayName.uppercase(),
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 1.sp,
                                 color = CoinsEmerald,
@@ -197,6 +208,82 @@ fun DashboardScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            NavigationBar(
+                containerColor = Color(0xFF121824),
+                contentColor = TextPrimary
+            ) {
+                DashboardTab.values().forEach { tab ->
+                    val selected = selectedTab == tab
+                    NavigationBarItem(
+                        selected = selected,
+                        onClick = { selectedTab = tab },
+                        icon = {
+                            Box {
+                                Text(tab.iconText, fontSize = 18.sp)
+                                // Badges
+                                when (tab) {
+                                    DashboardTab.BOT -> {
+                                        val (badgeColor, textColor) = when (uiState.botStatus.state) {
+                                            BotState.RUNNING -> CoinsEmerald to Color.Black
+                                            BotState.PAUSED -> WarningAmber to Color.Black
+                                            else -> TextMuted to Color.White
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .background(badgeColor, CircleShape)
+                                                .padding(horizontal = 3.dp, vertical = 1.dp)
+                                        ) {
+                                            Text(
+                                                text = uiState.botStatus.state.label.take(1),
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = textColor
+                                            )
+                                        }
+                                    }
+                                    DashboardTab.PORTFOLIO -> {
+                                        if (uiState.openPositions.isNotEmpty()) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .background(CoinsEmerald, CircleShape)
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${uiState.openPositions.size}",
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.Black
+                                                )
+                                            }
+                                        }
+                                    }
+                                    else -> {}
+                                }
+                            }
+                        },
+                        label = {
+                            Text(
+                                text = tab.label,
+                                fontSize = 10.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (selected) CoinsEmerald else TextMuted
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = CoinsEmerald,
+                            selectedTextColor = CoinsEmerald,
+                            indicatorColor = CoinsEmerald.copy(alpha = 0.15f),
+                            unselectedIconColor = TextMuted,
+                            unselectedTextColor = TextMuted
+                        ),
+                        modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
+                    )
+                }
+            }
         }
     ) { innerPadding ->
         LazyColumn(
@@ -206,108 +293,171 @@ fun DashboardScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item {
-                HeaderStatusCard(
-                    status = uiState.botStatus,
-                    activeSymbol = uiState.botSettings.symbol,
-                    exchangePlatform = uiState.botSettings.exchangePlatform,
-                    availableSymbols = uiState.availableSymbols,
-                    onSymbolSelected = { viewModel.onSymbolSelected(it) },
-                    onExchangePlatformSelected = { viewModel.onExchangePlatformSelected(it) }
-                )
-            }
+            when (selectedTab) {
+                DashboardTab.MARKET -> {
+                    item {
+                        HeaderStatusCard(
+                            status = uiState.botStatus,
+                            activeSymbol = uiState.botSettings.symbol,
+                            exchangePlatform = uiState.botSettings.exchangePlatform,
+                            availableSymbols = uiState.availableSymbols,
+                            onSymbolSelected = { viewModel.onSymbolSelected(it) },
+                            onExchangePlatformSelected = { viewModel.onExchangePlatformSelected(it) }
+                        )
+                    }
 
-            item {
-                val ticker = uiState.marketTicker
-                PriceChart(
-                    priceHistory = uiState.priceHistory,
-                    candles = uiState.candles,
-                    currentPrice = ticker?.price ?: 0.0,
-                    quoteCurrency = uiState.botSettings.quoteCurrency,
-                    change24h = ticker?.change24h ?: 0.0,
-                    chartType = uiState.chartType,
-                    chartInterval = uiState.chartInterval,
-                    averageEntryPrice = avgEntry,
-                    takeProfitPrice = tpPrice,
-                    stopLossPrice = slPrice,
-                    onChartTypeSelected = { viewModel.onChartTypeSelected(it) },
-                    onChartIntervalSelected = { viewModel.onChartIntervalSelected(it) }
-                )
-            }
+                    item {
+                        val ticker = uiState.marketTicker
+                        PriceChart(
+                            priceHistory = uiState.priceHistory,
+                            candles = uiState.candles,
+                            currentPrice = ticker?.price ?: 0.0,
+                            quoteCurrency = uiState.botSettings.quoteCurrency,
+                            change24h = ticker?.change24h ?: 0.0,
+                            symbol = uiState.botSettings.symbol,
+                            baseCurrency = uiState.botSettings.baseCurrency,
+                            high24h = ticker?.high24h ?: (ticker?.price ?: 0.0),
+                            low24h = ticker?.low24h ?: (ticker?.price ?: 0.0),
+                            volume24h = ticker?.volume24h ?: 0.0,
+                            exchangeName = uiState.botSettings.exchangePlatform.displayName,
+                            chartType = uiState.chartType,
+                            chartInterval = uiState.chartInterval,
+                            averageEntryPrice = avgEntry,
+                            takeProfitPrice = tpPrice,
+                            stopLossPrice = slPrice,
+                            onChartTypeSelected = { viewModel.onChartTypeSelected(it) },
+                            onChartIntervalSelected = { viewModel.onChartIntervalSelected(it) }
+                        )
+                    }
 
-            item {
-                OrderBookCard(
-                    orderBook = uiState.orderBook
-                )
-            }
+                    item {
+                        OrderBookCard(
+                            orderBook = uiState.orderBook
+                        )
+                    }
 
-            item {
-                QuickStatsGrid(
-                    portfolio = uiState.portfolio,
-                    quoteCurrency = uiState.botSettings.quoteCurrency
-                )
-            }
+                    item {
+                        BotActionsBar(
+                            botState = uiState.botStatus.state,
+                            tradingMode = uiState.botSettings.tradingMode,
+                            isOperationInProgress = uiState.isOperationInProgress,
+                            openPositionsCount = uiState.openPositions.size,
+                            onStartBot = { viewModel.onStartBotClicked(context) },
+                            onPauseBot = { viewModel.onPauseBotClicked() },
+                            onStopBot = { viewModel.onStopBotClicked(context) },
+                            onEmergencyStop = { viewModel.onEmergencyStopClicked() },
+                            onRequestEnableLiveTrading = { viewModel.onRequestEnableLiveTrading() },
+                            onSwitchToPaperTrading = { viewModel.onSwitchToPaperTrading() },
+                            onCancelAllOrders = { viewModel.onCancelAllOrders() },
+                            onManualBuy = { viewModel.onManualBuyClicked() },
+                            onCloseAllPositions = { viewModel.onCloseAllPositionsClicked() }
+                        )
+                    }
+                }
 
-            item {
-                OpenPositionsCard(
-                    positions = uiState.openPositions,
-                    quoteCurrency = uiState.botSettings.quoteCurrency,
-                    onClosePosition = { viewModel.onClosePosition(it) }
-                )
-            }
+                DashboardTab.BOT -> {
+                    item {
+                        HeaderStatusCard(
+                            status = uiState.botStatus,
+                            activeSymbol = uiState.botSettings.symbol,
+                            exchangePlatform = uiState.botSettings.exchangePlatform,
+                            availableSymbols = uiState.availableSymbols,
+                            onSymbolSelected = { viewModel.onSymbolSelected(it) },
+                            onExchangePlatformSelected = { viewModel.onExchangePlatformSelected(it) }
+                        )
+                    }
 
-            item {
-                StrategyControlsCard(
-                    settings = uiState.botSettings,
-                    onStrategySelected = { viewModel.onStrategySelected(it) },
-                    onOrderAmountChanged = { viewModel.onOrderAmountChanged(it) },
-                    onDipTriggerChanged = { viewModel.onDipTriggerChanged(it) },
-                    onTakeProfitChanged = { viewModel.onTakeProfitChanged(it) },
-                    onStopLossChanged = { viewModel.onStopLossChanged(it) },
-                    onMaxCapitalChanged = { viewModel.onMaxCapitalChanged(it) },
-                    onMaxDailyLossChanged = { viewModel.onMaxDailyLossChanged(it) },
-                    onRsiPeriodChanged = { viewModel.onRsiPeriodChanged(it) },
-                    onGridLevelsChanged = { viewModel.onGridLevelsChanged(it) },
-                    onGridLowerPriceChanged = { viewModel.onGridLowerPriceChanged(it) },
-                    onGridUpperPriceChanged = { viewModel.onGridUpperPriceChanged(it) },
-                    onTrailingTakeProfitToggled = { viewModel.onTrailingTakeProfitToggled(it) },
-                    onTrailingStopPercentageChanged = { viewModel.onTrailingStopPercentageChanged(it) },
-                    onSmartEntryToggled = { viewModel.onSmartEntryToggled(it) },
-                    onBreakEvenLockToggled = { viewModel.onBreakEvenLockToggled(it) },
-                    onGreenCandleConfirmationToggled = { viewModel.onGreenCandleConfirmationToggled(it) },
-                    onDcaMultiplierChanged = { viewModel.onDcaMultiplierChanged(it) },
-                    onNeverSellAtLossToggled = { viewModel.onNeverSellAtLossToggled(it) },
-                    onSpreadGuardToggled = { viewModel.onSpreadGuardToggled(it) },
-                    onCrashTrendFilterToggled = { viewModel.onCrashTrendFilterToggled(it) },
-                    onPartialTakeProfitToggled = { viewModel.onPartialTakeProfitToggled(it) },
-                    onRunBacktestClicked = { viewModel.onRunBacktestClicked() },
-                    onAutoOptimizeClicked = { viewModel.onAutoOptimizeClicked() }
-                )
-            }
+                    item {
+                        BotActionsBar(
+                            botState = uiState.botStatus.state,
+                            tradingMode = uiState.botSettings.tradingMode,
+                            isOperationInProgress = uiState.isOperationInProgress,
+                            openPositionsCount = uiState.openPositions.size,
+                            onStartBot = { viewModel.onStartBotClicked(context) },
+                            onPauseBot = { viewModel.onPauseBotClicked() },
+                            onStopBot = { viewModel.onStopBotClicked(context) },
+                            onEmergencyStop = { viewModel.onEmergencyStopClicked() },
+                            onRequestEnableLiveTrading = { viewModel.onRequestEnableLiveTrading() },
+                            onSwitchToPaperTrading = { viewModel.onSwitchToPaperTrading() },
+                            onCancelAllOrders = { viewModel.onCancelAllOrders() },
+                            onManualBuy = { viewModel.onManualBuyClicked() },
+                            onCloseAllPositions = { viewModel.onCloseAllPositionsClicked() }
+                        )
+                    }
 
-            item {
-                BotActionsBar(
-                    botState = uiState.botStatus.state,
-                    tradingMode = uiState.botSettings.tradingMode,
-                    isOperationInProgress = uiState.isOperationInProgress,
-                    openPositionsCount = uiState.openPositions.size,
-                    onStartBot = { viewModel.onStartBotClicked(context) },
-                    onPauseBot = { viewModel.onPauseBotClicked() },
-                    onStopBot = { viewModel.onStopBotClicked(context) },
-                    onEmergencyStop = { viewModel.onEmergencyStopClicked() },
-                    onRequestEnableLiveTrading = { viewModel.onRequestEnableLiveTrading() },
-                    onSwitchToPaperTrading = { viewModel.onSwitchToPaperTrading() },
-                    onCancelAllOrders = { viewModel.onCancelAllOrders() },
-                    onManualBuy = { viewModel.onManualBuyClicked() },
-                    onCloseAllPositions = { viewModel.onCloseAllPositionsClicked() }
-                )
-            }
+                    item {
+                        StrategyControlsCard(
+                            settings = uiState.botSettings,
+                            onStrategySelected = { viewModel.onStrategySelected(it) },
+                            onOrderAmountChanged = { viewModel.onOrderAmountChanged(it) },
+                            onDipTriggerChanged = { viewModel.onDipTriggerChanged(it) },
+                            onTakeProfitChanged = { viewModel.onTakeProfitChanged(it) },
+                            onStopLossChanged = { viewModel.onStopLossChanged(it) },
+                            onMaxCapitalChanged = { viewModel.onMaxCapitalChanged(it) },
+                            onMaxDailyLossChanged = { viewModel.onMaxDailyLossChanged(it) },
+                            onRsiPeriodChanged = { viewModel.onRsiPeriodChanged(it) },
+                            onGridLevelsChanged = { viewModel.onGridLevelsChanged(it) },
+                            onGridLowerPriceChanged = { viewModel.onGridLowerPriceChanged(it) },
+                            onGridUpperPriceChanged = { viewModel.onGridUpperPriceChanged(it) },
+                            onTrailingTakeProfitToggled = { viewModel.onTrailingTakeProfitToggled(it) },
+                            onTrailingStopPercentageChanged = { viewModel.onTrailingStopPercentageChanged(it) },
+                            onSmartEntryToggled = { viewModel.onSmartEntryToggled(it) },
+                            onBreakEvenLockToggled = { viewModel.onBreakEvenLockToggled(it) },
+                            onGreenCandleConfirmationToggled = { viewModel.onGreenCandleConfirmationToggled(it) },
+                            onDcaMultiplierChanged = { viewModel.onDcaMultiplierChanged(it) },
+                            onNeverSellAtLossToggled = { viewModel.onNeverSellAtLossToggled(it) },
+                            onSpreadGuardToggled = { viewModel.onSpreadGuardToggled(it) },
+                            onCrashTrendFilterToggled = { viewModel.onCrashTrendFilterToggled(it) },
+                            onPartialTakeProfitToggled = { viewModel.onPartialTakeProfitToggled(it) },
+                            onRunBacktestClicked = { viewModel.onRunBacktestClicked() },
+                            onAutoOptimizeClicked = { viewModel.onAutoOptimizeClicked() }
+                        )
+                    }
+                }
 
-            item {
-                ActivityFeedList(
-                    logs = uiState.tradeLogs,
-                    onExportCsv = { logs -> exportLogsToCsv(context, logs) }
-                )
+                DashboardTab.PORTFOLIO -> {
+                    item {
+                        QuickStatsGrid(
+                            portfolio = uiState.portfolio,
+                            quoteCurrency = uiState.botSettings.quoteCurrency
+                        )
+                    }
+
+                    item {
+                        OpenPositionsCard(
+                            positions = uiState.openPositions,
+                            quoteCurrency = uiState.botSettings.quoteCurrency,
+                            onClosePosition = { viewModel.onClosePosition(it) }
+                        )
+                    }
+
+                    item {
+                        BotActionsBar(
+                            botState = uiState.botStatus.state,
+                            tradingMode = uiState.botSettings.tradingMode,
+                            isOperationInProgress = uiState.isOperationInProgress,
+                            openPositionsCount = uiState.openPositions.size,
+                            onStartBot = { viewModel.onStartBotClicked(context) },
+                            onPauseBot = { viewModel.onPauseBotClicked() },
+                            onStopBot = { viewModel.onStopBotClicked(context) },
+                            onEmergencyStop = { viewModel.onEmergencyStopClicked() },
+                            onRequestEnableLiveTrading = { viewModel.onRequestEnableLiveTrading() },
+                            onSwitchToPaperTrading = { viewModel.onSwitchToPaperTrading() },
+                            onCancelAllOrders = { viewModel.onCancelAllOrders() },
+                            onManualBuy = { viewModel.onManualBuyClicked() },
+                            onCloseAllPositions = { viewModel.onCloseAllPositionsClicked() }
+                        )
+                    }
+                }
+
+                DashboardTab.LOGS -> {
+                    item {
+                        ActivityFeedList(
+                            logs = uiState.tradeLogs,
+                            onExportCsv = { logs -> exportLogsToCsv(context, logs) }
+                        )
+                    }
+                }
             }
 
             item {
@@ -328,82 +478,39 @@ fun DashboardScreen(
                 }
             },
             text = {
-                Column {
-                    Text(
-                        "You are about to switch from Paper Trading to LIVE TRADING. Live trading submits real orders to your authenticated Coins.ph account.",
-                        color = TextPrimary,
-                        fontSize = 13.sp
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFF2B1D1D), RoundedCornerShape(8.dp))
-                            .padding(10.dp)
-                    ) {
-                        Text(
-                            "Mandatory Safety Checklist:\n" +
-                            "• Real funds will be deducted from your exchange balance.\n" +
-                            "• Orders are routed exclusively via secure backend server.\n" +
-                            "• Daily loss stop (${uiState.botSettings.maxDailyLoss} ${uiState.botSettings.quoteCurrency}) will be enforced.\n" +
-                            "• Trading involves financial risk. No profit is guaranteed.",
-                            color = TextSecondary,
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    TextButton(
-                        onClick = {
-                            viewModel.onDismissLiveTradingDialog()
-                            viewModel.onRequestConfigureCredentials()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("btn_configure_credentials_modal")
-                    ) {
-                        Text("Configure / Update API Keys", color = CoinsEmerald, fontWeight = FontWeight.Bold)
-                    }
-                }
+                Text(
+                    text = "You are about to switch to LIVE TRADING mode on ${uiState.botSettings.exchangePlatform.displayName}.\n\nReal funds will be committed. Please verify your API keys and risk parameters.",
+                    color = TextPrimary
+                )
             },
             confirmButton = {
                 Button(
                     onClick = { viewModel.onConfirmLiveTrading() },
-                    colors = ButtonDefaults.buttonColors(containerColor = LossRed),
-                    modifier = Modifier.testTag("btn_confirm_live_modal")
+                    colors = ButtonDefaults.buttonColors(containerColor = LossRed)
                 ) {
-                    Text("I UNDERSTAND & ENABLE LIVE", fontWeight = FontWeight.Bold)
+                    Text("PROCEED LIVE", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(
-                    onClick = { viewModel.onDismissLiveTradingDialog() },
-                    modifier = Modifier.testTag("btn_cancel_live_modal")
-                ) {
-                    Text("KEEP PAPER MODE", color = TextMuted)
+                TextButton(onClick = { viewModel.onDismissLiveTradingDialog() }) {
+                    Text("CANCEL", color = TextMuted)
                 }
             },
             containerColor = Color(0xFF1B2230)
         )
     }
 
-    // API Credentials Setup Dialog
+    // API Key Credentials Configuration Modal
     if (uiState.showApiCredentialsDialog) {
         var inputApiKey by remember { mutableStateOf("") }
         var inputSecretKey by remember { mutableStateOf("") }
 
         AlertDialog(
             onDismissRequest = { viewModel.onDismissCredentialsDialog() },
-            title = {
-                Text("Configure Coins.ph API Keys", fontWeight = FontWeight.Bold, color = TextPrimary)
-            },
+            title = { Text("Configure API Keys", fontWeight = FontWeight.Bold, color = CoinsEmerald) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Enter your Coins.ph Spot API credentials to execute live orders directly on the exchange.",
-                        color = TextSecondary,
-                        fontSize = 12.sp
-                    )
+                    Text("Enter your ${uiState.botSettings.exchangePlatform.displayName} API Key & Secret:", color = TextSecondary, fontSize = 12.sp)
                     OutlinedTextField(
                         value = inputApiKey,
                         onValueChange = { inputApiKey = it },

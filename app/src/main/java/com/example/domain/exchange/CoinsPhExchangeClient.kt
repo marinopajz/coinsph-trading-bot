@@ -108,7 +108,8 @@ class CoinsPhExchangeClient(
             val response = apiService.getExchangeInfo()
             if (response.isSuccessful && response.body() != null) {
                 val list = response.body()!!.symbols.filter {
-                    it.status == "TRADING" || it.isSpotTradingAllowed == true
+                    (it.status == "TRADING" || it.isSpotTradingAllowed == true) &&
+                    it.symbol.any { ch -> ch.isLetter() }
                 }
                 Result.success(list)
             } else {

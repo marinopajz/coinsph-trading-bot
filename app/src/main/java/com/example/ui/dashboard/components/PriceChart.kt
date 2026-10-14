@@ -80,6 +80,7 @@ fun PriceChart(
     high24h: Double = currentPrice,
     low24h: Double = currentPrice,
     volume24h: Double = 0.0,
+    exchangeName: String = "Coins.ph",
     chartType: ChartType = ChartType.CANDLE,
     chartInterval: ChartInterval = ChartInterval.FIVE_MIN,
     averageEntryPrice: Double? = null,
@@ -362,7 +363,7 @@ fun PriceChart(
                         .padding(start = 4.dp, top = 2.dp)
                 ) {
                     Text(
-                        text = "$baseCurrency/$quoteCurrency · ${chartInterval.label} · Coins",
+                        text = "$baseCurrency/$quoteCurrency · ${chartInterval.label} · $exchangeName",
                         fontSize = 11.sp,
                         color = TextSecondary.copy(alpha = 0.8f),
                         fontWeight = FontWeight.Medium

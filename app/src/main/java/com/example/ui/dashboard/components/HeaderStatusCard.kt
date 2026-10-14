@@ -259,6 +259,7 @@ fun HeaderStatusCard(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     val filteredSymbols = availableSymbols.filter {
+                        val hasLetters = it.symbol.any { ch -> ch.isLetter() }
                         val matchesSearch = it.symbol.contains(searchQuery, ignoreCase = true)
                         val matchesCat = when (filterCategory) {
                             "PHP" -> it.symbol.endsWith("PHP")
@@ -266,7 +267,7 @@ fun HeaderStatusCard(
                             "FX" -> it.symbol.endsWith("USDT") && (it.symbol.startsWith("EUR") || it.symbol.startsWith("PAXG"))
                             else -> true
                         }
-                        matchesSearch && matchesCat
+                        hasLetters && matchesSearch && matchesCat
                     }
 
                     LazyColumn(modifier = Modifier.weight(1f)) {
