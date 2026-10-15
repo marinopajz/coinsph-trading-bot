@@ -22,6 +22,7 @@ import com.example.data.repository.TradingBotRepository
 import com.example.data.repository.TradingBotRepositoryImpl
 import com.example.domain.exchange.CoinsPhExchangeClient
 import com.example.domain.exchange.PaperTradingExchangeClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class DashboardUiState(
     val isLoading: Boolean = false,
@@ -80,40 +82,43 @@ class BotDashboardViewModel(
     private fun loadInitialData() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, hasLiveCredentials = repository.hasLiveCredentials()) }
-            val symbolsRes = repository.getAvailableSymbols()
-            val defaultSymbols = listOf(
-                CoinsSymbolInfo("BTCPHP", "TRADING", "BTC", "PHP", true),
-                CoinsSymbolInfo("ETHPHP", "TRADING", "ETH", "PHP", true),
-                CoinsSymbolInfo("XRPPHP", "TRADING", "XRP", "PHP", true),
-                CoinsSymbolInfo("SOLPHP", "TRADING", "SOL", "PHP", true),
-                CoinsSymbolInfo("USDT/PHP", "TRADING", "USDT", "PHP", true),
-                CoinsSymbolInfo("USDC/PHP", "TRADING", "USDC", "PHP", true),
-                CoinsSymbolInfo("BTCUSDT", "TRADING", "BTC", "USDT", true),
-                CoinsSymbolInfo("ETHUSDT", "TRADING", "ETH", "USDT", true),
-                CoinsSymbolInfo("SOLUSDT", "TRADING", "SOL", "USDT", true),
-                CoinsSymbolInfo("XRPUSDT", "TRADING", "XRP", "USDT", true),
-                CoinsSymbolInfo("BNBUSDT", "TRADING", "BNB", "USDT", true),
-                CoinsSymbolInfo("PAXGUSDT", "TRADING", "PAXG", "USDT", true),
-                CoinsSymbolInfo("EURUSDT", "TRADING", "EUR", "USDT", true),
-                CoinsSymbolInfo("BTCUSDC", "TRADING", "BTC", "USDC", true)
-            )
-            val rawSymbols = symbolsRes.getOrDefault(defaultSymbols)
+            
+            val sortedSymbols = withContext(Dispatchers.Default) {
+                val symbolsRes = repository.getAvailableSymbols()
+                val defaultSymbols = listOf(
+                    CoinsSymbolInfo("BTCPHP", "TRADING", "BTC", "PHP", true),
+                    CoinsSymbolInfo("ETHPHP", "TRADING", "ETH", "PHP", true),
+                    CoinsSymbolInfo("XRPPHP", "TRADING", "XRP", "PHP", true),
+                    CoinsSymbolInfo("SOLPHP", "TRADING", "SOL", "PHP", true),
+                    CoinsSymbolInfo("USDT/PHP", "TRADING", "USDT", "PHP", true),
+                    CoinsSymbolInfo("USDC/PHP", "TRADING", "USDC", "PHP", true),
+                    CoinsSymbolInfo("BTCUSDT", "TRADING", "BTC", "USDT", true),
+                    CoinsSymbolInfo("ETHUSDT", "TRADING", "ETH", "USDT", true),
+                    CoinsSymbolInfo("SOLUSDT", "TRADING", "SOL", "USDT", true),
+                    CoinsSymbolInfo("XRPUSDT", "TRADING", "XRP", "USDT", true),
+                    CoinsSymbolInfo("BNBUSDT", "TRADING", "BNB", "USDT", true),
+                    CoinsSymbolInfo("PAXGUSDT", "TRADING", "PAXG", "USDT", true),
+                    CoinsSymbolInfo("EURUSDT", "TRADING", "EUR", "USDT", true),
+                    CoinsSymbolInfo("BTCUSDC", "TRADING", "BTC", "USDC", true)
+                )
+                val rawSymbols = symbolsRes.getOrDefault(defaultSymbols)
 
-            val isBinance = _uiState.value.botSettings.exchangePlatform == com.example.data.model.ExchangePlatform.BINANCE
-            val priorityOrder = if (isBinance) {
-                listOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "PAXGUSDT", "EURUSDT")
-            } else {
-                listOf("BTCPHP", "ETHPHP", "XRPPHP", "SOLPHP", "USDC/PHP", "USDT/PHP")
-            }
+                val isBinance = _uiState.value.botSettings.exchangePlatform == com.example.data.model.ExchangePlatform.BINANCE
+                val priorityOrder = if (isBinance) {
+                    listOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "PAXGUSDT", "EURUSDT")
+                } else {
+                    listOf("BTCPHP", "ETHPHP", "XRPPHP", "SOLPHP", "USDC/PHP", "USDT/PHP")
+                }
 
-            val sortedSymbols = rawSymbols.sortedWith { a, b ->
-                val indexA = priorityOrder.indexOf(a.symbol.uppercase())
-                val indexB = priorityOrder.indexOf(b.symbol.uppercase())
-                when {
-                    indexA != -1 && indexB != -1 -> indexA.compareTo(indexB)
-                    indexA != -1 -> -1
-                    indexB != -1 -> 1
-                    else -> a.symbol.compareTo(b.symbol, ignoreCase = true)
+                rawSymbols.sortedWith { a, b ->
+                    val indexA = priorityOrder.indexOf(a.symbol.uppercase())
+                    val indexB = priorityOrder.indexOf(b.symbol.uppercase())
+                    when {
+                        indexA != -1 && indexB != -1 -> indexA.compareTo(indexB)
+                        indexA != -1 -> -1
+                        indexB != -1 -> 1
+                        else -> a.symbol.compareTo(b.symbol, ignoreCase = true)
+                    }
                 }
             }
 

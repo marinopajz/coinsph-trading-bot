@@ -26,6 +26,7 @@ class BinanceExchangeClient : ExchangeClient {
     
     private var apiKey: String = ""
     private var secretKey: String = ""
+    private var cachedSymbols: List<CoinsSymbolInfo>? = null
 
     private val mirrors = listOf(
         "https://api-gcp.binance.com",
@@ -38,8 +39,8 @@ class BinanceExchangeClient : ExchangeClient {
     private var currentMirrorIndex = 0
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
         .build()
 
     fun setCredentials(key: String, secret: String) {
@@ -184,35 +185,50 @@ class BinanceExchangeClient : ExchangeClient {
     }
 
     override suspend fun getAvailableSymbols(): Result<List<CoinsSymbolInfo>> {
-        return try {
-            val res = getRequest("/api/v3/exchangeInfo")
-            val json = JSONObject(res)
-            val symbolsArray = json.getJSONArray("symbols")
-            val list = mutableListOf<CoinsSymbolInfo>()
-            for (i in 0 until symbolsArray.length()) {
-                val s = symbolsArray.getJSONObject(i)
-                if (s.getString("status") == "TRADING" && s.getBoolean("isSpotTradingAllowed")) {
-                    list.add(
-                        CoinsSymbolInfo(
-                            symbol = s.getString("symbol"),
-                            baseAsset = s.getString("baseAsset"),
-                            quoteAsset = s.getString("quoteAsset"),
-                            status = "TRADING",
-                            isSpotTradingAllowed = true
+        if (cachedSymbols != null) {
+            return Result.success(cachedSymbols!!)
+        }
+        return withContext(Dispatchers.Default) {
+            try {
+                val res = getRequest("/api/v3/exchangeInfo")
+                val json = JSONObject(res)
+                val symbolsArray = json.getJSONArray("symbols")
+                val list = mutableListOf<CoinsSymbolInfo>()
+                for (i in 0 until symbolsArray.length()) {
+                    val s = symbolsArray.getJSONObject(i)
+                    val status = s.optString("status", "")
+                    val isSpot = s.optBoolean("isSpotTradingAllowed", true)
+                    val quote = s.optString("quoteAsset", "")
+                    if (status == "TRADING" && isSpot && (quote == "USDT" || quote == "USDC")) {
+                        list.add(
+                            CoinsSymbolInfo(
+                                symbol = s.getString("symbol"),
+                                baseAsset = s.getString("baseAsset"),
+                                quoteAsset = quote,
+                                status = "TRADING",
+                                isSpotTradingAllowed = true
+                            )
                         )
-                    )
+                    }
                 }
+                val priorityBases = setOf("BTC", "ETH", "SOL", "XRP", "BNB", "PAXG", "EUR", "EURI", "GBP", "AUD", "DOGE", "ADA", "AVAX", "LINK", "DOT", "MATIC", "SHIB", "LTC", "TRX", "UNI", "ATOM", "NEAR", "APT", "ARB", "OP", "SUI", "PEPE", "FDUSD", "USDC")
+                val priorityList = list.filter { it.baseAsset.uppercase() in priorityBases }
+                val remainingList = list.filterNot { it.baseAsset.uppercase() in priorityBases }.take(120)
+                val finalSymbols = (priorityList + remainingList).distinctBy { it.symbol }
+
+                cachedSymbols = finalSymbols
+                Result.success(finalSymbols)
+            } catch (e: Exception) {
+                val fallback = listOf(
+                    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "PAXGUSDT", "EURUSDT", "GBPUSDT", "AUDUSDT", "USDCUSDT", "BTCUSDC"
+                ).map { 
+                    val quote = if (it.endsWith("USDT") || it.endsWith("USDC")) it.takeLast(4) else it.takeLast(3)
+                    val base = it.dropLast(quote.length)
+                    CoinsSymbolInfo(it, base, quote, "TRADING", true) 
+                }
+                cachedSymbols = fallback
+                Result.success(fallback)
             }
-            Result.success(list)
-        } catch (e: Exception) {
-            val fallback = listOf(
-                "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "PAXGUSDT", "EURUSDT", "BTCUSDC"
-            ).map { 
-                val quote = if(it.endsWith("USDT") || it.endsWith("USDC")) it.takeLast(4) else it.takeLast(3)
-                val base = it.dropLast(quote.length)
-                CoinsSymbolInfo(it, base, quote, "TRADING", true) 
-            }
-            Result.success(fallback)
         }
     }
 

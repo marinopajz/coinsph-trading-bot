@@ -258,20 +258,28 @@ fun HeaderStatusCard(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    val filteredSymbols = availableSymbols.filter {
-                        val hasLetters = it.symbol.any { ch -> ch.isLetter() }
-                        val matchesSearch = it.symbol.contains(searchQuery, ignoreCase = true)
-                        val matchesCat = when (filterCategory) {
-                            "PHP" -> it.symbol.endsWith("PHP")
-                            "USDT" -> it.symbol.endsWith("USDT")
-                            "FX" -> it.symbol.endsWith("USDT") && (it.symbol.startsWith("EUR") || it.symbol.startsWith("PAXG"))
-                            else -> true
+                    val filteredSymbols = remember(availableSymbols, searchQuery, filterCategory) {
+                        availableSymbols.filter {
+                            val hasLetters = it.symbol.any { ch -> ch.isLetter() }
+                            val matchesSearch = it.symbol.contains(searchQuery, ignoreCase = true)
+                            val matchesCat = when (filterCategory) {
+                                "PHP" -> it.symbol.endsWith("PHP")
+                                "USDT" -> it.symbol.endsWith("USDT")
+                                "FX" -> {
+                                    val s = it.symbol.uppercase()
+                                    s.startsWith("EUR") || s.startsWith("PAXG") || s.startsWith("GBP") ||
+                                    s.startsWith("AUD") || s.startsWith("JPY") ||
+                                    s == "USDTPHP" || s == "USDCPHP" || s == "USDT/PHP" || s == "USDC/PHP" ||
+                                    s == "USDCUSDT" || s == "FDUSDUSDT"
+                                }
+                                else -> true
+                            }
+                            hasLetters && matchesSearch && matchesCat
                         }
-                        hasLetters && matchesSearch && matchesCat
                     }
 
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(filteredSymbols) { sym ->
+                        items(filteredSymbols, key = { it.symbol }) { sym ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

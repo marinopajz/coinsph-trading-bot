@@ -522,11 +522,11 @@ class TradingBotRepositoryImpl(
     }
 
     override suspend fun getAvailableSymbols(): Result<List<CoinsSymbolInfo>> {
-        return getActiveExchangeClient().getAvailableSymbols()
+        return getMarketDataClient().getAvailableSymbols()
     }
 
     override suspend fun fetchLatestTicker(symbol: String): Result<MarketTicker> {
-        return getActiveExchangeClient().getTicker(symbol)
+        return getMarketDataClient().getTicker(symbol)
     }
 
     override suspend fun closePosition(positionId: String): Result<Unit> {
