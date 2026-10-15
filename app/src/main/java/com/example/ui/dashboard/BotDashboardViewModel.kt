@@ -88,9 +88,9 @@ class BotDashboardViewModel(
 
             val isBinance = _uiState.value.botSettings.exchangePlatform == com.example.data.model.ExchangePlatform.BINANCE
             val priorityOrder = if (isBinance) {
-                listOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "PAXGUSDT", "EURUSDT")
+                listOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "PEPEUSDT", "SHIBUSDT", "SUIUSDT", "ADAUSDT", "TRXUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "LTCUSDT", "TONUSDT", "BONKUSDT", "WIFUSDT", "NEARUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "RENDERUSDT", "FETUSDT", "PAXGUSDT", "EURUSDT", "GBPUSDT", "AUDUSDT", "USDCUSDT")
             } else {
-                listOf("BTCPHP", "ETHPHP", "XRPPHP", "SOLPHP", "USDC/PHP", "USDT/PHP")
+                listOf("BTCPHP", "ETHPHP", "XRPPHP", "SOLPHP", "DOGEPHP", "PEPEPHP", "SHIBPHP", "SUIPHP", "ADAPHP", "TRXPHP", "LINKPHP", "AVAXPHP", "DOTPHP", "LTCPHP", "TONPHP", "BONKPHP", "FLOKIPHP", "WIFPHP", "GALAPHP", "SANDPHP", "POLPHP", "NEARPHP", "APTPHP", "ARBPHP", "OPPHP", "RENDERPHP", "FETPHP", "USDTPHP", "USDCPHP", "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")
             }
 
             val sortedSymbols = rawSymbols.sortedWith { a, b ->
@@ -143,9 +143,9 @@ class BotDashboardViewModel(
 
                 val isBinance = _uiState.value.botSettings.exchangePlatform == com.example.data.model.ExchangePlatform.BINANCE
                 val priorityOrder = if (isBinance) {
-                    listOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "PAXGUSDT", "EURUSDT")
+                    listOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "PEPEUSDT", "SHIBUSDT", "SUIUSDT", "ADAUSDT", "TRXUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "LTCUSDT", "TONUSDT", "BONKUSDT", "WIFUSDT", "NEARUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "RENDERUSDT", "FETUSDT", "PAXGUSDT", "EURUSDT", "GBPUSDT", "AUDUSDT", "USDCUSDT")
                 } else {
-                    listOf("BTCPHP", "ETHPHP", "XRPPHP", "SOLPHP", "USDC/PHP", "USDT/PHP")
+                    listOf("BTCPHP", "ETHPHP", "XRPPHP", "SOLPHP", "DOGEPHP", "PEPEPHP", "SHIBPHP", "SUIPHP", "ADAPHP", "TRXPHP", "LINKPHP", "AVAXPHP", "DOTPHP", "LTCPHP", "TONPHP", "BONKPHP", "FLOKIPHP", "WIFPHP", "GALAPHP", "SANDPHP", "POLPHP", "NEARPHP", "APTPHP", "ARBPHP", "OPPHP", "RENDERPHP", "FETPHP", "USDTPHP", "USDCPHP", "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")
                 }
 
                 rawSymbols.sortedWith { a, b ->

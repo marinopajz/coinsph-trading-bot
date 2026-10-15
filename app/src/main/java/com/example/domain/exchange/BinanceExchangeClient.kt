@@ -214,10 +214,7 @@ class BinanceExchangeClient : ExchangeClient {
                         )
                     }
                 }
-                val priorityBases = setOf("BTC", "ETH", "SOL", "XRP", "BNB", "PAXG", "EUR", "EURI", "GBP", "AUD", "DOGE", "ADA", "AVAX", "LINK", "DOT", "MATIC", "SHIB", "LTC", "TRX", "UNI", "ATOM", "NEAR", "APT", "ARB", "OP", "SUI", "PEPE", "FDUSD", "USDC")
-                val priorityList = list.filter { it.baseAsset.uppercase() in priorityBases }
-                val remainingList = list.filterNot { it.baseAsset.uppercase() in priorityBases }.take(120)
-                val finalSymbols = (priorityList + remainingList).distinctBy { it.symbol }
+                val finalSymbols = list.distinctBy { it.symbol }
 
                 // Fetch 24hr Tickers
                 val tickerMap = runCatching {
@@ -231,9 +228,10 @@ class BinanceExchangeClient : ExchangeClient {
                     map
                 }.getOrDefault(emptyMap())
 
-                val enrichedSymbols = finalSymbols.map { sym ->
+                val enrichedSymbols = finalSymbols.mapNotNull { sym ->
                     val tObj = tickerMap[sym.symbol.uppercase()]
                     val price = tObj?.optDouble("lastPrice", 0.0) ?: 0.0
+                    if (tickerMap.isNotEmpty() && price <= 0.0) return@mapNotNull null
                     val change = tObj?.optDouble("priceChangePercent", 0.0) ?: 0.0
                     val vol = tObj?.optDouble("volume", 0.0) ?: 0.0
                     sym.copy(lastPrice = price, priceChangePercent = change, volume24h = vol)

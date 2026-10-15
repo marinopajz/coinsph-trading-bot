@@ -15,6 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -54,6 +56,39 @@ fun MarketWatchlistCard(
     modifier: Modifier = Modifier
 ) {
     var selectedFilter by remember { mutableStateOf("Featured") }
+    var searchQuery by remember { mutableStateOf("") }
+    var showAllCoins by remember { mutableStateOf(false) }
+
+    val allMatchingSymbols = remember(availableSymbols, selectedFilter, searchQuery) {
+        val list = availableSymbols.filter {
+            val hasLetters = it.symbol.any { ch -> ch.isLetter() }
+            val matchesSearch = searchQuery.isBlank() || it.symbol.contains(searchQuery, ignoreCase = true)
+            hasLetters && matchesSearch
+        }
+
+        when (selectedFilter) {
+            "Crypto" -> list.filterNot { sym ->
+                val s = sym.symbol.uppercase()
+                s.startsWith("EUR") || s.startsWith("PAXG") || s.startsWith("GBP") || s.startsWith("AUD")
+            }
+            "Gold & FX" -> list.filter { sym ->
+                val s = sym.symbol.uppercase()
+                s.startsWith("EUR") || s.startsWith("PAXG") || s.startsWith("GBP") ||
+                s.startsWith("AUD") || s == "USDTPHP" || s == "USDCPHP" || s == "USDT/PHP" ||
+                s == "USDC/PHP" || s == "USDCUSDT" || s == "FDUSDUSDT"
+            }
+            "Top Gainers" -> list.filter { it.lastPrice > 0.0 }.sortedByDescending { it.priceChangePercent }
+            "Top Dips" -> list.filter { it.lastPrice > 0.0 }.sortedBy { it.priceChangePercent }
+            else -> list // Featured
+        }
+    }
+
+    val totalMatchingCount = allMatchingSymbols.size
+    val displaySymbols = if (showAllCoins || searchQuery.isNotBlank()) {
+        allMatchingSymbols
+    } else {
+        allMatchingSymbols.take(20)
+    }
 
     Card(
         modifier = modifier
@@ -68,7 +103,7 @@ fun MarketWatchlistCard(
                 .padding(16.dp)
         ) {
             Text(
-                text = "📊 LIVE MARKET WATCHLIST (CRYPTO & FX)",
+                text = "📊 LIVE MARKET WATCHLIST (${totalMatchingCount} ASSETS)",
                 color = TextMuted,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
@@ -107,40 +142,38 @@ fun MarketWatchlistCard(
                 }
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it.uppercase() },
+                placeholder = { Text("Search coin in watchlist (e.g. DOGE, PEPE, SOL)...", color = TextMuted, fontSize = 11.sp) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("input_watchlist_search"),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = CoinsEmerald,
+                    unfocusedBorderColor = Color(0xFF263246),
+                    focusedTextColor = TextPrimary
+                )
+            )
+
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Filter & Sort Assets
-            val filteredSymbols = remember(availableSymbols, selectedFilter) {
-                val list = availableSymbols.filter { it.symbol.any { ch -> ch.isLetter() } }
-                when (selectedFilter) {
-                    "Crypto" -> list.filterNot { sym ->
-                        val s = sym.symbol.uppercase()
-                        s.startsWith("EUR") || s.startsWith("PAXG") || s.startsWith("GBP") || s.startsWith("AUD")
-                    }
-                    "Gold & FX" -> list.filter { sym ->
-                        val s = sym.symbol.uppercase()
-                        s.startsWith("EUR") || s.startsWith("PAXG") || s.startsWith("GBP") ||
-                        s.startsWith("AUD") || s == "USDTPHP" || s == "USDCPHP" || s == "USDT/PHP" ||
-                        s == "USDC/PHP" || s == "USDCUSDT" || s == "FDUSDUSDT"
-                    }
-                    "Top Gainers" -> list.sortedByDescending { it.priceChangePercent }
-                    "Top Dips" -> list.sortedBy { it.priceChangePercent }
-                    else -> list // Featured
-                }.take(8)
-            }
-
-            if (filteredSymbols.isEmpty()) {
+            if (displaySymbols.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("Awaiting live watchlist data...", fontSize = 11.sp, color = TextMuted)
+                    Text("No matching assets found...", fontSize = 11.sp, color = TextMuted)
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    filteredSymbols.forEach { sym ->
+                    displaySymbols.forEach { sym ->
                         val isActive = sym.symbol.equals(activeSymbol, ignoreCase = true)
                         Row(
                             modifier = Modifier
@@ -201,6 +234,27 @@ fun MarketWatchlistCard(
                                 }
                             }
                         }
+                    }
+                }
+
+                // Show All / Show Top 20 Toggle Button
+                if (searchQuery.isBlank() && totalMatchingCount > 20) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF1B2230), RoundedCornerShape(8.dp))
+                            .clickable { showAllCoins = !showAllCoins }
+                            .padding(vertical = 10.dp)
+                            .testTag("btn_toggle_watchlist_expansion"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (showAllCoins) "▲ Show Top 20 Coins" else "▼ Show All $totalMatchingCount Coins",
+                            color = CoinsEmerald,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
