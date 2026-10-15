@@ -29,9 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Locale
+
 import com.example.data.model.BotRuntimeStatus
 import com.example.data.model.CoinsSymbolInfo
 import com.example.ui.theme.CoinsEmerald
@@ -39,7 +42,6 @@ import com.example.ui.theme.LossRed
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material3.OutlinedTextField
@@ -52,6 +54,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+
+private fun formatWatchlistPrice(price: Double): String {
+    if (price <= 0.0) return "--"
+    return when {
+        price >= 1.0 -> String.format(Locale.US, "%,.2f", price)
+        price >= 0.01 -> String.format(Locale.US, "%.4f", price)
+        else -> String.format(Locale.US, "%.6f", price)
+    }
+}
 
 @Composable
 fun HeaderStatusCard(
@@ -196,6 +207,7 @@ fun HeaderStatusCard(
     if (showSymbolDialog) {
         var searchQuery by remember { mutableStateOf("") }
         var filterCategory by remember { mutableStateOf("ALL") }
+        var sortOption by remember { mutableStateOf("DEFAULT") }
 
         Dialog(
             onDismissRequest = { showSymbolDialog = false },
@@ -231,35 +243,63 @@ fun HeaderStatusCard(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
+                    // Category Chips & Sort Toggle Row
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        listOf("ALL", "PHP", "USDT", "FX").forEach { cat ->
-                            val selected = filterCategory == cat
-                            Box(
-                                modifier = Modifier
-                                    .background(
-                                        if (selected) CoinsEmerald.copy(alpha = 0.2f) else Color.Transparent,
-                                        RoundedCornerShape(6.dp)
+                        // Category Chips
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf("ALL", "PHP", "USDT", "FX").forEach { cat ->
+                                val selected = filterCategory == cat
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (selected) CoinsEmerald.copy(alpha = 0.2f) else Color.Transparent,
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable { filterCategory = cat }
+                                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = cat,
+                                        fontSize = 10.sp,
+                                        color = if (selected) CoinsEmerald else TextMuted,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
                                     )
-                                    .clickable { filterCategory = cat }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = cat,
-                                    fontSize = 10.sp,
-                                    color = if (selected) CoinsEmerald else TextMuted,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                                )
+                                }
+                            }
+                        }
+
+                        // Sort Toggle Chips
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf("DEFAULT" to "Default", "GAINERS" to "📈", "DIPS" to "📉").forEach { (code, lbl) ->
+                                val selected = sortOption == code
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (selected) CoinsEmerald.copy(alpha = 0.2f) else Color.Transparent,
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable { sortOption = code }
+                                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = lbl,
+                                        fontSize = 10.sp,
+                                        color = if (selected) CoinsEmerald else TextMuted,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    val filteredSymbols = remember(availableSymbols, searchQuery, filterCategory) {
-                        availableSymbols.filter {
+                    val filteredSymbols = remember(availableSymbols, searchQuery, filterCategory, sortOption) {
+                        val baseList = availableSymbols.filter {
                             val hasLetters = it.symbol.any { ch -> ch.isLetter() }
                             val matchesSearch = it.symbol.contains(searchQuery, ignoreCase = true)
                             val matchesCat = when (filterCategory) {
@@ -276,6 +316,11 @@ fun HeaderStatusCard(
                             }
                             hasLetters && matchesSearch && matchesCat
                         }
+                        when (sortOption) {
+                            "GAINERS" -> baseList.sortedByDescending { it.priceChangePercent }
+                            "DIPS" -> baseList.sortedBy { it.priceChangePercent }
+                            else -> baseList
+                        }
                     }
 
                     LazyColumn(modifier = Modifier.weight(1f)) {
@@ -287,24 +332,54 @@ fun HeaderStatusCard(
                                         onSymbolSelected(sym.symbol)
                                         showSymbolDialog = false
                                     }
-                                    .padding(vertical = 12.dp)
+                                    .padding(vertical = 10.dp)
                                     .testTag("symbol_chip_${sym.symbol}"),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = sym.symbol,
-                                    color = if (sym.symbol.equals(activeSymbol, ignoreCase = true)) CoinsEmerald else TextPrimary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                                val base = if (sym.symbol.endsWith("PHP")) sym.symbol.dropLast(3) else sym.symbol.dropLast(4)
-                                val quote = sym.symbol.drop(base.length)
-                                Text(
-                                    text = "$base / $quote",
-                                    color = TextMuted,
-                                    fontSize = 10.sp
-                                )
+                                Column {
+                                    Text(
+                                        text = sym.symbol,
+                                        color = if (sym.symbol.equals(activeSymbol, ignoreCase = true)) CoinsEmerald else TextPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                    val base = if (sym.symbol.endsWith("PHP")) sym.symbol.dropLast(3) else sym.symbol.dropLast(4)
+                                    val quote = sym.symbol.drop(base.length)
+                                    Text(
+                                        text = "$base / $quote",
+                                        color = TextMuted,
+                                        fontSize = 10.sp
+                                    )
+                                }
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = formatWatchlistPrice(sym.lastPrice),
+                                        color = TextPrimary,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    val isGain = sym.priceChangePercent >= 0
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                color = if (isGain) CoinsEmerald.copy(alpha = 0.15f) else LossRed.copy(alpha = 0.15f),
+                                                shape = RoundedCornerShape(4.dp)
+                                            )
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = String.format(Locale.US, "%+.2f%%", sym.priceChangePercent),
+                                            color = if (isGain) CoinsEmerald else LossRed,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

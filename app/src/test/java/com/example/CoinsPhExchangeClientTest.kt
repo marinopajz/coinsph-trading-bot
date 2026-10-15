@@ -67,6 +67,9 @@ class CoinsPhExchangeClientTest {
                 )
             )
 
+        override suspend fun getAll24HrTickers(): Response<List<Coins24HrTicker>> =
+            Response.success(emptyList())
+
         override suspend fun getKlines(
             symbol: String,
             interval: String,

@@ -10,7 +10,9 @@ import com.example.data.network.BackendApiService
 import com.example.data.network.BackendOrderRequest
 import com.example.data.network.CoinsPhApiService
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.UUID
 
@@ -104,19 +106,34 @@ class CoinsPhExchangeClient(
     }
 
     override suspend fun getAvailableSymbols(): Result<List<CoinsSymbolInfo>> {
-        return try {
-            val response = apiService.getExchangeInfo()
-            if (response.isSuccessful && response.body() != null) {
-                val list = response.body()!!.symbols.filter {
-                    (it.status == "TRADING" || it.isSpotTradingAllowed == true) &&
-                    it.symbol.any { ch -> ch.isLetter() }
+        return withContext(Dispatchers.Default) {
+            try {
+                val response = apiService.getExchangeInfo()
+                if (response.isSuccessful && response.body() != null) {
+                    val tickerMap = runCatching {
+                        val tickersRes = apiService.getAll24HrTickers()
+                        if (tickersRes.isSuccessful && tickersRes.body() != null) {
+                            tickersRes.body()!!.associateBy { it.symbol.uppercase() }
+                        } else emptyMap()
+                    }.getOrDefault(emptyMap())
+
+                    val list = response.body()!!.symbols.filter {
+                        (it.status == "TRADING" || it.isSpotTradingAllowed == true) &&
+                        it.symbol.any { ch -> ch.isLetter() }
+                    }.map { sym ->
+                        val ticker = tickerMap[sym.symbol.uppercase()]
+                        val price = ticker?.lastPrice?.toDoubleOrNull() ?: 0.0
+                        val change = ticker?.priceChangePercent?.toDoubleOrNull() ?: 0.0
+                        val vol = ticker?.volume?.toDoubleOrNull() ?: 0.0
+                        sym.copy(lastPrice = price, priceChangePercent = change, volume24h = vol)
+                    }
+                    Result.success(list)
+                } else {
+                    Result.failure(Exception("Failed to fetch exchangeInfo: HTTP ${response.code()}"))
                 }
-                Result.success(list)
-            } else {
-                Result.failure(Exception("Failed to fetch exchangeInfo: HTTP ${response.code()}"))
+            } catch (e: Exception) {
+                Result.failure(e)
             }
-        } catch (e: Exception) {
-            Result.failure(e)
         }
     }
 

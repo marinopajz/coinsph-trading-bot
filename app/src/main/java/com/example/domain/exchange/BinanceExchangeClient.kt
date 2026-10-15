@@ -27,6 +27,8 @@ class BinanceExchangeClient : ExchangeClient {
     private var apiKey: String = ""
     private var secretKey: String = ""
     private var cachedSymbols: List<CoinsSymbolInfo>? = null
+    private var cacheTimestamp: Long = 0L
+    private val CACHE_TTL_MS = 10_000L
 
     private val mirrors = listOf(
         "https://api-gcp.binance.com",
@@ -185,7 +187,8 @@ class BinanceExchangeClient : ExchangeClient {
     }
 
     override suspend fun getAvailableSymbols(): Result<List<CoinsSymbolInfo>> {
-        if (cachedSymbols != null) {
+        val now = System.currentTimeMillis()
+        if (cachedSymbols != null && (now - cacheTimestamp) < CACHE_TTL_MS) {
             return Result.success(cachedSymbols!!)
         }
         return withContext(Dispatchers.Default) {
@@ -216,8 +219,29 @@ class BinanceExchangeClient : ExchangeClient {
                 val remainingList = list.filterNot { it.baseAsset.uppercase() in priorityBases }.take(120)
                 val finalSymbols = (priorityList + remainingList).distinctBy { it.symbol }
 
-                cachedSymbols = finalSymbols
-                Result.success(finalSymbols)
+                // Fetch 24hr Tickers
+                val tickerMap = runCatching {
+                    val tickersRes = getRequest("/api/v3/ticker/24hr")
+                    val tickersArray = JSONArray(tickersRes)
+                    val map = mutableMapOf<String, JSONObject>()
+                    for (j in 0 until tickersArray.length()) {
+                        val tObj = tickersArray.getJSONObject(j)
+                        map[tObj.getString("symbol").uppercase()] = tObj
+                    }
+                    map
+                }.getOrDefault(emptyMap())
+
+                val enrichedSymbols = finalSymbols.map { sym ->
+                    val tObj = tickerMap[sym.symbol.uppercase()]
+                    val price = tObj?.optDouble("lastPrice", 0.0) ?: 0.0
+                    val change = tObj?.optDouble("priceChangePercent", 0.0) ?: 0.0
+                    val vol = tObj?.optDouble("volume", 0.0) ?: 0.0
+                    sym.copy(lastPrice = price, priceChangePercent = change, volume24h = vol)
+                }
+
+                cachedSymbols = enrichedSymbols
+                cacheTimestamp = System.currentTimeMillis()
+                Result.success(enrichedSymbols)
             } catch (e: Exception) {
                 val fallback = listOf(
                     "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "PAXGUSDT", "EURUSDT", "GBPUSDT", "AUDUSDT", "USDCUSDT", "BTCUSDC"
@@ -227,6 +251,7 @@ class BinanceExchangeClient : ExchangeClient {
                     CoinsSymbolInfo(it, base, quote, "TRADING", true) 
                 }
                 cachedSymbols = fallback
+                cacheTimestamp = System.currentTimeMillis()
                 Result.success(fallback)
             }
         }

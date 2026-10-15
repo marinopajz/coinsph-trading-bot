@@ -32,6 +32,9 @@ interface CoinsPhApiService {
         @Query("symbol") symbol: String? = null
     ): Response<Coins24HrTicker>
 
+    @GET("/openapi/quote/v1/ticker/24hr")
+    suspend fun getAll24HrTickers(): Response<List<Coins24HrTicker>>
+
     @GET("/openapi/quote/v1/klines")
     suspend fun getKlines(
         @Query("symbol") symbol: String,

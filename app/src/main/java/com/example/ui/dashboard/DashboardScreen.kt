@@ -62,6 +62,7 @@ import com.example.data.model.TradingMode
 import com.example.ui.dashboard.components.ActivityFeedList
 import com.example.ui.dashboard.components.BotActionsBar
 import com.example.ui.dashboard.components.HeaderStatusCard
+import com.example.ui.dashboard.components.MarketWatchlistCard
 import com.example.ui.dashboard.components.OpenPositionsCard
 import com.example.ui.dashboard.components.OrderBookCard
 import com.example.ui.dashboard.components.PriceChart
@@ -333,6 +334,14 @@ fun DashboardScreen(
                     item {
                         OrderBookCard(
                             orderBook = uiState.orderBook
+                        )
+                    }
+
+                    item {
+                        MarketWatchlistCard(
+                            availableSymbols = uiState.availableSymbols,
+                            activeSymbol = uiState.botSettings.symbol,
+                            onSymbolSelected = { viewModel.onSymbolSelected(it) }
                         )
                     }
 

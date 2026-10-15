@@ -21,7 +21,10 @@ data class CoinsSymbolInfo(
     @Json(name = "status") val status: String,
     @Json(name = "baseAsset") val baseAsset: String,
     @Json(name = "quoteAsset") val quoteAsset: String,
-    @Json(name = "isSpotTradingAllowed") val isSpotTradingAllowed: Boolean? = true
+    @Json(name = "isSpotTradingAllowed") val isSpotTradingAllowed: Boolean? = true,
+    val lastPrice: Double = 0.0,
+    val priceChangePercent: Double = 0.0,
+    val volume24h: Double = 0.0
 )
 
 @JsonClass(generateAdapter = true)

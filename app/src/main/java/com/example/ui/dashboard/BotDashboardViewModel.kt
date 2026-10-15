@@ -77,6 +77,44 @@ class BotDashboardViewModel(
     init {
         loadInitialData()
         observeRepositoryFlows()
+        startWatchlistPolling()
+    }
+
+    fun refreshMarketWatchlist() {
+        viewModelScope.launch(Dispatchers.Default) {
+            val symbolsRes = repository.getAvailableSymbols()
+            val rawSymbols = symbolsRes.getOrDefault(emptyList())
+            if (rawSymbols.isEmpty()) return@launch
+
+            val isBinance = _uiState.value.botSettings.exchangePlatform == com.example.data.model.ExchangePlatform.BINANCE
+            val priorityOrder = if (isBinance) {
+                listOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "PAXGUSDT", "EURUSDT")
+            } else {
+                listOf("BTCPHP", "ETHPHP", "XRPPHP", "SOLPHP", "USDC/PHP", "USDT/PHP")
+            }
+
+            val sortedSymbols = rawSymbols.sortedWith { a, b ->
+                val indexA = priorityOrder.indexOf(a.symbol.uppercase())
+                val indexB = priorityOrder.indexOf(b.symbol.uppercase())
+                when {
+                    indexA != -1 && indexB != -1 -> indexA.compareTo(indexB)
+                    indexA != -1 -> -1
+                    indexB != -1 -> 1
+                    else -> a.symbol.compareTo(b.symbol, ignoreCase = true)
+                }
+            }
+
+            _uiState.update { it.copy(availableSymbols = sortedSymbols) }
+        }
+    }
+
+    private fun startWatchlistPolling() {
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(15_000L)
+                refreshMarketWatchlist()
+            }
+        }
     }
 
     private fun loadInitialData() {

@@ -93,6 +93,9 @@ class FakeCoinsPhApiService : CoinsPhApiService {
         return Response.success(com.example.data.model.CoinsOrderBookResponse())
     }
 
+    override suspend fun getAll24HrTickers(): Response<List<Coins24HrTicker>> =
+        Response.success(emptyList())
+
     override suspend fun get24HrTicker(symbol: String?): Response<Coins24HrTicker> {
         return ticker24HrResponse ?: Response.success(
             Coins24HrTicker(

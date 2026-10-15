@@ -7,8 +7,10 @@ import com.example.data.model.MarketTicker
 import com.example.data.model.TradeLog
 import com.example.data.model.TradingMode
 import com.example.data.network.CoinsPhApiService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 class PaperTradingExchangeClient(
@@ -89,26 +91,42 @@ class PaperTradingExchangeClient(
             return Result.success(cachedSymbols!!)
         }
 
-        return cacheMutex.withLock {
-            val currentNow = System.currentTimeMillis()
-            if (cachedSymbols != null && (currentNow - cacheTimestamp) < CACHE_TTL_MS) {
-                return@withLock Result.success(cachedSymbols!!)
-            }
-
-            try {
-                val response = apiService.getExchangeInfo()
-                if (response.isSuccessful && response.body() != null) {
-                    val list = response.body()!!.symbols.filter {
-                        it.status == "TRADING" || it.isSpotTradingAllowed == true
-                    }
-                    cachedSymbols = list
-                    cacheTimestamp = System.currentTimeMillis()
-                    Result.success(list)
-                } else {
-                    Result.failure(Exception("Failed to fetch available symbols: HTTP ${response.code()}"))
+        return withContext(Dispatchers.Default) {
+            cacheMutex.withLock {
+                val currentNow = System.currentTimeMillis()
+                if (cachedSymbols != null && (currentNow - cacheTimestamp) < CACHE_TTL_MS) {
+                    return@withLock Result.success(cachedSymbols!!)
                 }
-            } catch (e: Exception) {
-                Result.failure(e)
+
+                try {
+                    val response = apiService.getExchangeInfo()
+                    if (response.isSuccessful && response.body() != null) {
+                        val tickerMap = runCatching {
+                            val tickersRes = apiService.getAll24HrTickers()
+                            if (tickersRes.isSuccessful && tickersRes.body() != null) {
+                                tickersRes.body()!!.associateBy { it.symbol.uppercase() }
+                            } else emptyMap()
+                        }.getOrDefault(emptyMap())
+
+                        val list = response.body()!!.symbols.filter {
+                            (it.status == "TRADING" || it.isSpotTradingAllowed == true) &&
+                            it.symbol.any { ch -> ch.isLetter() }
+                        }.map { sym ->
+                            val ticker = tickerMap[sym.symbol.uppercase()]
+                            val price = ticker?.lastPrice?.toDoubleOrNull() ?: 0.0
+                            val change = ticker?.priceChangePercent?.toDoubleOrNull() ?: 0.0
+                            val vol = ticker?.volume?.toDoubleOrNull() ?: 0.0
+                            sym.copy(lastPrice = price, priceChangePercent = change, volume24h = vol)
+                        }
+                        cachedSymbols = list
+                        cacheTimestamp = System.currentTimeMillis()
+                        Result.success(list)
+                    } else {
+                        Result.failure(Exception("Failed to fetch available symbols: HTTP ${response.code()}"))
+                    }
+                } catch (e: Exception) {
+                    Result.failure(e)
+                }
             }
         }
     }

@@ -355,31 +355,6 @@ fun PriceChart(
                     .fillMaxWidth()
                     .height(280.dp)
             ) {
-                // Top-Left In-Canvas Watermark & Active Candle Overlay
-                val activeCandle = selectedCandle ?: visibleCandlesSlice.lastOrNull()
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(start = 4.dp, top = 2.dp)
-                ) {
-                    Text(
-                        text = "$baseCurrency/$quoteCurrency · ${chartInterval.label} · $exchangeName",
-                        fontSize = 11.sp,
-                        color = TextSecondary.copy(alpha = 0.8f),
-                        fontWeight = FontWeight.Medium
-                    )
-                    if (activeCandle != null) {
-                        val cDiff = activeCandle.close - activeCandle.open
-                        val cPct = if (activeCandle.open > 0) (cDiff / activeCandle.open) * 100.0 else 0.0
-                        Text(
-                            text = String.format(Locale.US, "C: %,.2f  %+.2f (%+.2f%%)", activeCandle.close, cDiff, cPct),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = if (cPct >= 0) CoinsEmerald else LossRed,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
 
                 if (visibleCandlesSlice.isEmpty() && priceHistory.size < 2) {
                     Box(
@@ -433,7 +408,7 @@ fun PriceChart(
                         val volumeTop = height * 0.72f
                         val volumeHeight = height * 0.18f
 
-                        val topPadding = 28.dp.toPx()
+                        val topPadding = 42.dp.toPx()
                         val usableHeight = (pricePlotHeight - topPadding).coerceAtLeast(1f)
 
                         fun mapPriceToY(price: Double): Float {
@@ -834,6 +809,34 @@ fun PriceChart(
                                 drawCircle(color = CoinsEmerald, radius = 2.dp.toPx(), center = Offset(selX, selY))
                             }
                         }
+                    }
+                }
+
+                // Top-Left In-Canvas Watermark & Active Candle Overlay (Rendered ON TOP of Canvas)
+                val activeCandle = selectedCandle ?: visibleCandlesSlice.lastOrNull()
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 4.dp, top = 2.dp)
+                        .background(CryptoSurface.copy(alpha = 0.78f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "$baseCurrency/$quoteCurrency · ${chartInterval.label} · $exchangeName",
+                        fontSize = 11.sp,
+                        color = TextSecondary.copy(alpha = 0.8f),
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (activeCandle != null) {
+                        val cDiff = activeCandle.close - activeCandle.open
+                        val cPct = if (activeCandle.open > 0) (cDiff / activeCandle.open) * 100.0 else 0.0
+                        Text(
+                            text = String.format(Locale.US, "C: %,.2f  %+.2f (%+.2f%%)", activeCandle.close, cDiff, cPct),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = if (cPct >= 0) CoinsEmerald else LossRed,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
