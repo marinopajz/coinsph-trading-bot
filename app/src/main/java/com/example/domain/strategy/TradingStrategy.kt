@@ -91,7 +91,16 @@ class DcaStrategy : TradingStrategy {
                 val averageEntryPrice = totalCost / totalQty
                 val profitPct = ((currentPrice - averageEntryPrice) / averageEntryPrice) * 100.0
 
-                if (settings.breakEvenLockEnabled && settings.breakEvenActivated && profitPct <= 0.30) {
+                if (settings.neverSellAtLoss && currentPrice < (averageEntryPrice * 1.003)) {
+                    if (profitPct <= -targetSl || (settings.breakEvenLockEnabled && settings.breakEvenActivated)) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = String.format("Spot HODL Guard active: holding through drawdown (%+.2f%% < +0.30%%)", profitPct)
+                        )
+                    }
+                }
+
+                if (settings.breakEvenLockEnabled && settings.breakEvenActivated && profitPct >= 0.05 && profitPct <= 0.30) {
                     return TradingSignal(
                         action = SignalAction.SELL,
                         reason = String.format("Break-Even Lock triggered at +%.2f%% (Protected profit & fees)", profitPct),
@@ -869,7 +878,16 @@ class AiGodModeStrategy : TradingStrategy {
                 val avgEntry = totalCost / totalQty
                 val profitPct = ((currentPrice - avgEntry) / avgEntry) * 100.0
 
-                if (settings.breakEvenLockEnabled && settings.breakEvenActivated && profitPct <= 0.30) {
+                if (settings.neverSellAtLoss && currentPrice < (avgEntry * 1.003)) {
+                    if (profitPct <= -targetSl || (settings.breakEvenLockEnabled && settings.breakEvenActivated)) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = String.format("[AI God Mode] Spot HODL Guard active: holding through drawdown (%+.2f%% < +0.30%%)", profitPct)
+                        )
+                    }
+                }
+
+                if (settings.breakEvenLockEnabled && settings.breakEvenActivated && profitPct >= 0.05 && profitPct <= 0.30) {
                     return TradingSignal(
                         action = SignalAction.SELL,
                         reason = String.format("[AI God Mode] Break-Even Lock triggered at +%.2f%%", profitPct),

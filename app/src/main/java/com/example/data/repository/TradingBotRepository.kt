@@ -814,9 +814,14 @@ class TradingBotRepositoryImpl(
                 pnlPercentage = 0.0,
                 entryTimestamp = order.timestamp
             )
+            val isFirstEntry = _openPositions.value.isEmpty()
             val updatedPositions = _openPositions.value + position
             _openPositions.value = updatedPositions
             tradingDao?.insertOpenPosition(OpenPositionEntity.fromDomain(position))
+
+            if (isFirstEntry) {
+                _botSettings.value = _botSettings.value.copy(peakPrice = 0.0, breakEvenActivated = false)
+            }
 
             // Update portfolio
             val port = _portfolio.value
@@ -906,7 +911,7 @@ class TradingBotRepositoryImpl(
             )
             addTradeLog(log)
 
-            _botSettings.value = _botSettings.value.copy(peakPrice = 0.0)
+            _botSettings.value = _botSettings.value.copy(peakPrice = 0.0, breakEvenActivated = false)
 
             _botStatus.value = _botStatus.value.copy(
                 openPositionsCount = 0,
@@ -937,8 +942,8 @@ class TradingBotRepositoryImpl(
         val positions = _openPositions.value
         val settings = _botSettings.value
         if (positions.isEmpty()) {
-            if (settings.peakPrice != 0.0) {
-                _botSettings.value = settings.copy(peakPrice = 0.0)
+            if (settings.peakPrice != 0.0 || settings.breakEvenActivated) {
+                _botSettings.value = settings.copy(peakPrice = 0.0, breakEvenActivated = false)
             }
             return
         }
@@ -955,7 +960,24 @@ class TradingBotRepositoryImpl(
                         val client = getActiveExchangeClient()
                         val orderRes = client.submitOrder(pos.symbol, "SELL", "MARKET", halfQty, currentPrice, null)
                         orderRes.onSuccess { execLog ->
-                            addTradeLog(execLog.copy(message = "Partial Take-Profit (50% Scale-Out) locked in! Remaining 50% Moonbag active"))
+                            val grossProceeds = halfQty * currentPrice
+                            val sellFee = grossProceeds * 0.001
+                            val partialCost = pos.amountInvested * 0.5
+                            val partialRealizedPnl = (grossProceeds - sellFee) - partialCost
+
+                            val port = _portfolio.value
+                            val updatedPort = port.copy(
+                                allocatedCapital = (port.allocatedCapital - partialCost).coerceAtLeast(0.0),
+                                totalRealizedPnl = port.totalRealizedPnl + partialRealizedPnl,
+                                dailyPnl = port.dailyPnl + partialRealizedPnl
+                            )
+                            _portfolio.value = updatedPort
+                            tradingDao?.savePortfolioSnapshot(PortfolioSnapshotEntity.fromDomain(updatedPort))
+
+                            addTradeLog(execLog.copy(
+                                realizedPnl = partialRealizedPnl,
+                                message = String.format(Locale.US, "Partial Take-Profit (50%% Scale-Out) locked in at +%.2f%% | Realized PnL: %+.2f %s", pct, partialRealizedPnl, settings.quoteCurrency)
+                            ))
                         }
                     }
                     val newPos = pos.copy(
