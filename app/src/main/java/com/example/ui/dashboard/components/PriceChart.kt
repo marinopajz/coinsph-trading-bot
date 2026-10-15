@@ -58,6 +58,15 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private fun formatChartPrice(price: Double): String {
+    if (price <= 0.0) return "0.00"
+    return when {
+        price >= 1.0 -> String.format(Locale.US, "%,.2f", price)
+        price >= 0.01 -> String.format(Locale.US, "%.4f", price)
+        else -> String.format(Locale.US, "%.6f", price)
+    }
+}
+
 private fun formatCompactNumber(value: Double): String {
     val absVal = kotlin.math.abs(value)
     return when {
@@ -163,7 +172,7 @@ fun PriceChart(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = String.format(Locale.US, "%,.2f", currentPrice),
+                        text = formatChartPrice(currentPrice),
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
@@ -173,7 +182,7 @@ fun PriceChart(
                     )
                     val absChange = currentPrice * (change24h / 100.0)
                     Text(
-                        text = String.format(Locale.US, "%+,.2f (%+.2f%%)", absChange, change24h),
+                        text = String.format(Locale.US, "%s (%+.2f%%)", formatChartPrice(absChange), change24h),
                         color = chartColor,
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
@@ -186,11 +195,11 @@ fun PriceChart(
                 Column(horizontalAlignment = Alignment.End) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("24h High", fontSize = 10.sp, color = TextMuted)
-                        Text(String.format(Locale.US, "%,.2f", high24h), fontSize = 10.sp, color = TextPrimary, fontFamily = FontFamily.Monospace)
+                        Text(formatChartPrice(high24h), fontSize = 10.sp, color = TextPrimary, fontFamily = FontFamily.Monospace)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("24h Low", fontSize = 10.sp, color = TextMuted)
-                        Text(String.format(Locale.US, "%,.2f", low24h), fontSize = 10.sp, color = TextPrimary, fontFamily = FontFamily.Monospace)
+                        Text(formatChartPrice(low24h), fontSize = 10.sp, color = TextPrimary, fontFamily = FontFamily.Monospace)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("24h Vol. ($baseCurrency)", fontSize = 10.sp, color = TextMuted)
@@ -436,7 +445,7 @@ fun PriceChart(
                                 pathEffect = if (chartType == ChartType.AREA) PathEffect.dashPathEffect(floatArrayOf(8f, 8f)) else null
                             )
                             drawContext.canvas.nativeCanvas.drawText(
-                                String.format(Locale.US, "%,.0f", gridPrice),
+                                formatChartPrice(gridPrice),
                                 width - 2.dp.toPx(),
                                 y + 3.dp.toPx(),
                                 textPaint
@@ -682,7 +691,7 @@ fun PriceChart(
                             typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
                         }
                         drawContext.canvas.nativeCanvas.drawText(
-                            String.format(Locale.US, "%,.0f", currentPrice),
+                            formatChartPrice(currentPrice),
                             width - 4.dp.toPx(),
                             badgeTop + badgeH - 4.dp.toPx(),
                             badgePaint
@@ -831,7 +840,7 @@ fun PriceChart(
                         val cDiff = activeCandle.close - activeCandle.open
                         val cPct = if (activeCandle.open > 0) (cDiff / activeCandle.open) * 100.0 else 0.0
                         Text(
-                            text = String.format(Locale.US, "C: %,.2f  %+.2f (%+.2f%%)", activeCandle.close, cDiff, cPct),
+                            text = String.format(Locale.US, "C: %s  %s (%+.2f%%)", formatChartPrice(activeCandle.close), formatChartPrice(cDiff), cPct),
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             color = if (cPct >= 0) CoinsEmerald else LossRed,

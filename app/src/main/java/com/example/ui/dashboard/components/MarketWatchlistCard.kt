@@ -113,8 +113,11 @@ fun MarketWatchlistCard(
                     color = TextMuted,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.height(0.dp))
                 Box(
                     modifier = Modifier
                         .background(CoinsEmerald.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
@@ -126,7 +129,9 @@ fun MarketWatchlistCard(
                         text = "⚡ SCAN BEST COIN",
                         color = CoinsEmerald,
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }

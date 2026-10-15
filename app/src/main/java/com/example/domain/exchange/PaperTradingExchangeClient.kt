@@ -72,6 +72,18 @@ class PaperTradingExchangeClient(
         return Result.success(Unit)
     }
 
+    private suspend fun fetchUsdtPhpRate(): Double {
+        return try {
+            val tickerRes = apiService.get24HrTicker("USDTPHP")
+            val p = if (tickerRes.isSuccessful && tickerRes.body() != null) {
+                tickerRes.body()!!.lastPrice?.toDoubleOrNull() ?: 0.0
+            } else 0.0
+            if (p > 45.0) p else 58.20
+        } catch (e: Exception) {
+            58.20
+        }
+    }
+
     override suspend fun checkConnectivity(): Result<Long> {
         return try {
             val response = apiService.getServerTime()
@@ -101,6 +113,9 @@ class PaperTradingExchangeClient(
                 try {
                     val response = apiService.getExchangeInfo()
                     if (response.isSuccessful && response.body() != null) {
+                        val usdtRate = fetchUsdtPhpRate()
+                        val globalTickers = GlobalCrossRateFetcher.getGlobalUsdtTickers()
+
                         val tickerMap = runCatching {
                             val tickersRes = apiService.getAll24HrTickers()
                             if (tickersRes.isSuccessful && tickersRes.body() != null) {
@@ -111,12 +126,33 @@ class PaperTradingExchangeClient(
                         val list = response.body()!!.symbols.filter {
                             (it.status == "TRADING" || it.isSpotTradingAllowed == true) &&
                             it.symbol.any { ch -> ch.isLetter() }
-                        }.map { sym ->
-                            val ticker = tickerMap[sym.symbol.uppercase()]
-                            val price = ticker?.lastPrice?.toDoubleOrNull() ?: 0.0
-                            val change = ticker?.priceChangePercent?.toDoubleOrNull() ?: 0.0
-                            val vol = ticker?.volume?.toDoubleOrNull() ?: 0.0
-                            sym.copy(lastPrice = price, priceChangePercent = change, volume24h = vol)
+                        }.mapNotNull { sym ->
+                            val upper = sym.symbol.uppercase()
+                            val (base, quote) = splitSymbol(upper)
+                            val globalUsdt = if (quote == "PHP" && base != "USDT" && base != "USDC") {
+                                globalTickers["${base}USDT"]
+                            } else null
+
+                            var price = 0.0
+                            var change = 0.0
+                            var vol = 0.0
+
+                            if (globalUsdt != null) {
+                                price = globalUsdt.optDouble("lastPrice", 0.0) * usdtRate
+                                change = globalUsdt.optDouble("priceChangePercent", 0.0)
+                                vol = globalUsdt.optDouble("volume", 0.0)
+                            } else {
+                                val ticker = tickerMap[upper]
+                                price = ticker?.lastPrice?.toDoubleOrNull() ?: 0.0
+                                change = ticker?.priceChangePercent?.toDoubleOrNull() ?: 0.0
+                                vol = ticker?.volume?.toDoubleOrNull() ?: 0.0
+                            }
+
+                            if (tickerMap.isNotEmpty() && globalTickers.isNotEmpty() && price <= 0.0) {
+                                return@mapNotNull null
+                            }
+
+                            sym.copy(lastPrice = if (price > 0.0) price else 1.0, priceChangePercent = change, volume24h = vol)
                         }
                         cachedSymbols = list
                         cacheTimestamp = System.currentTimeMillis()
@@ -132,21 +168,52 @@ class PaperTradingExchangeClient(
     }
 
     override suspend fun getTicker(symbol: String): Result<MarketTicker> {
+        val upper = symbol.uppercase()
+        val (base, quote) = splitSymbol(upper)
+        val usdtRate = fetchUsdtPhpRate()
+
+        if (quote == "PHP" && base != "USDT" && base != "USDC") {
+            val globalTickers = GlobalCrossRateFetcher.getGlobalUsdtTickers()
+            val globalObj = globalTickers["${base}USDT"]
+            if (globalObj != null) {
+                val gPrice = globalObj.optDouble("lastPrice", 0.0) * usdtRate
+                val gChange = globalObj.optDouble("priceChangePercent", 0.0)
+                val gHigh = globalObj.optDouble("highPrice", 0.0) * usdtRate
+                val gLow = globalObj.optDouble("lowPrice", 0.0) * usdtRate
+                val gVol = globalObj.optDouble("volume", 0.0)
+                val gBid = globalObj.optDouble("bidPrice", gPrice / usdtRate) * usdtRate
+                val gAsk = globalObj.optDouble("askPrice", gPrice / usdtRate) * usdtRate
+
+                if (gPrice > 0.0) {
+                    return Result.success(
+                        MarketTicker(
+                            symbol = symbol,
+                            baseAsset = base,
+                            quoteAsset = quote,
+                            price = gPrice,
+                            change24h = gChange,
+                            high24h = gHigh,
+                            low24h = gLow,
+                            volume24h = gVol,
+                            bidPrice = gBid,
+                            askPrice = gAsk
+                        )
+                    )
+                }
+            }
+        }
+
         return try {
             val tickerRes = apiService.get24HrTicker(symbol)
             if (tickerRes.isSuccessful && tickerRes.body() != null) {
                 val t = tickerRes.body()!!
-                val price = t.lastPrice?.toDoubleOrNull() ?: throw Exception("Invalid price data from 24hr ticker")
-                if (price.isNaN() || price.isInfinite() || price <= 0.0) {
-                    throw Exception("Market price must be finite and greater than zero")
-                }
+                val price = t.lastPrice?.toDoubleOrNull() ?: 0.0
                 val change = t.priceChangePercent?.toDoubleOrNull() ?: 0.0
                 val high = t.highPrice?.toDoubleOrNull() ?: price
                 val low = t.lowPrice?.toDoubleOrNull() ?: price
                 val vol = t.volume?.toDoubleOrNull() ?: 0.0
                 val bid = t.bidPrice?.toDoubleOrNull() ?: price
                 val ask = t.askPrice?.toDoubleOrNull() ?: price
-                val (base, quote) = splitSymbol(symbol)
 
                 Result.success(
                     MarketTicker(
@@ -163,14 +230,9 @@ class PaperTradingExchangeClient(
                     )
                 )
             } else {
-                // Try simple price endpoint
                 val priceRes = apiService.getTickerPrice(symbol)
                 if (priceRes.isSuccessful && priceRes.body() != null) {
-                    val p = priceRes.body()?.price?.toDoubleOrNull() ?: throw Exception("Invalid price data from ticker price")
-                    if (p.isNaN() || p.isInfinite() || p <= 0.0) {
-                        throw Exception("Market price must be finite and greater than zero")
-                    }
-                    val (base, quote) = splitSymbol(symbol)
+                    val p = priceRes.body()?.price?.toDoubleOrNull() ?: 0.0
                     Result.success(
                         MarketTicker(
                             symbol = symbol,
@@ -192,35 +254,16 @@ class PaperTradingExchangeClient(
         }
     }
 
-    override suspend fun getOrderBook(
-        symbol: String,
-        limit: Int
-    ): Result<com.example.data.model.OrderBookSnapshot> {
-        val basePrice = getTicker(symbol).getOrNull()?.price ?: 5000000.0
-        val bids = (1..limit).map { i -> com.example.data.model.OrderBookEntry(basePrice * (1.0 - i * 0.001), 0.5 * i) }
-        val asks = (1..limit).map { i -> com.example.data.model.OrderBookEntry(basePrice * (1.0 + i * 0.001), 0.5 * i) }
-        val totalBidQty = bids.sumOf { it.quantity }
-        val totalAskQty = asks.sumOf { it.quantity }
-        val totalVol = totalBidQty + totalAskQty
-        val buyPressure = if (totalVol > 0) (totalBidQty / totalVol) * 100.0 else 50.0
-
-        return Result.success(
-            com.example.data.model.OrderBookSnapshot(
-                symbol = symbol,
-                bids = bids,
-                asks = asks,
-                buyPressurePercent = buyPressure,
-                spreadPercent = 0.2
-            )
-        )
-    }
-
     override suspend fun getKlines(
         symbol: String,
         interval: String,
         limit: Int
     ): Result<List<CandleStick>> {
-        return try {
+        val upper = symbol.uppercase()
+        val (base, quote) = splitSymbol(upper)
+        val usdtRate = fetchUsdtPhpRate()
+
+        val directResult = try {
             val response = apiService.getKlines(symbol = symbol, interval = interval, limit = limit)
             if (response.isSuccessful && response.body() != null) {
                 val rawList = response.body()!!
@@ -248,40 +291,110 @@ class PaperTradingExchangeClient(
                     } else null
                 }
                 if (candles.isNotEmpty()) {
-                    return Result.success(candles)
-                }
-            }
-            val basePrice = getTicker(symbol).getOrNull()?.price ?: 5000000.0
-            val now = System.currentTimeMillis()
-            val intervalMs = when (interval) {
-                "1m" -> 60_000L
-                "15m" -> 900_000L
-                "1h" -> 3_600_000L
-                "4h" -> 14_400_000L
-                "1d" -> 86_400_000L
-                else -> 300_000L
-            }
-            val synthetic = (limit - 1 downTo 0).map { i ->
-                val time = now - (i * intervalMs)
-                val variance = (Math.random() - 0.5) * (basePrice * 0.01)
-                val open = basePrice + variance
-                val close = open + (Math.random() - 0.5) * (basePrice * 0.008)
-                val high = maxOf(open, close) + Math.random() * (basePrice * 0.004)
-                val low = minOf(open, close) - Math.random() * (basePrice * 0.004)
-                val volume = Math.random() * 10.0
-                CandleStick(openTime = time, open = open, high = high, low = low, close = close, volume = volume, closeTime = time + intervalMs)
-            }
-            Result.success(synthetic)
+                    Result.success(candles)
+                } else null
+            } else null
         } catch (e: Exception) {
-            val basePrice = 5000000.0
-            val now = System.currentTimeMillis()
-            val intervalMs = 300_000L
-            val synthetic = (limit - 1 downTo 0).map { i ->
-                val time = now - (i * intervalMs)
-                CandleStick(openTime = time, open = basePrice, high = basePrice * 1.002, low = basePrice * 0.998, close = basePrice, volume = 5.0, closeTime = time + intervalMs)
-            }
-            Result.success(synthetic)
+            null
         }
+
+        if (directResult != null) return directResult
+
+        if (quote == "PHP" && base != "USDT" && base != "USDC") {
+            val globalKlines = GlobalCrossRateFetcher.getGlobalKlines(base, interval, limit, usdtRate)
+            if (globalKlines.isNotEmpty()) {
+                return Result.success(globalKlines)
+            }
+        }
+
+        val basePrice = getTicker(symbol).getOrNull()?.price ?: 5000000.0
+        val now = System.currentTimeMillis()
+        val intervalMs = when (interval) {
+            "1m" -> 60_000L
+            "15m" -> 900_000L
+            "1h" -> 3_600_000L
+            "4h" -> 14_400_000L
+            "1d" -> 86_400_000L
+            else -> 300_000L
+        }
+        val synthetic = (limit - 1 downTo 0).map { i ->
+            val time = now - (i * intervalMs)
+            val variance = (Math.random() - 0.5) * (basePrice * 0.01)
+            val open = basePrice + variance
+            val close = open + (Math.random() - 0.5) * (basePrice * 0.008)
+            val high = maxOf(open, close) + Math.random() * (basePrice * 0.004)
+            val low = minOf(open, close) - Math.random() * (basePrice * 0.004)
+            val volume = Math.random() * 10.0
+            CandleStick(openTime = time, open = open, high = high, low = low, close = close, volume = volume, closeTime = time + intervalMs)
+        }
+        return Result.success(synthetic)
+    }
+
+    override suspend fun getOrderBook(
+        symbol: String,
+        limit: Int
+    ): Result<com.example.data.model.OrderBookSnapshot> {
+        val upper = symbol.uppercase()
+        val (base, quote) = splitSymbol(upper)
+        val usdtRate = fetchUsdtPhpRate()
+
+        val directBook = try {
+            val res = apiService.getOrderBook(symbol, limit)
+            if (res.isSuccessful && res.body() != null) {
+                val body = res.body()!!
+                val mappedBids = body.bids.take(limit).mapNotNull {
+                    if (it.size >= 2) com.example.data.model.OrderBookEntry(it[0].toDoubleOrNull() ?: 0.0, it[1].toDoubleOrNull() ?: 0.0) else null
+                }
+                val mappedAsks = body.asks.take(limit).mapNotNull {
+                    if (it.size >= 2) com.example.data.model.OrderBookEntry(it[0].toDoubleOrNull() ?: 0.0, it[1].toDoubleOrNull() ?: 0.0) else null
+                }
+                if (mappedBids.isNotEmpty() && mappedAsks.isNotEmpty()) {
+                    val totalBidQty = mappedBids.sumOf { it.quantity }
+                    val totalAskQty = mappedAsks.sumOf { it.quantity }
+                    val totalVol = totalBidQty + totalAskQty
+                    val buyPressure = if (totalVol > 0) (totalBidQty / totalVol) * 100.0 else 50.0
+
+                    val bestBid = mappedBids.maxByOrNull { it.price }?.price ?: 0.0
+                    val bestAsk = mappedAsks.minByOrNull { it.price }?.price ?: 0.0
+                    val spread = if (bestBid > 0.0 && bestAsk > bestBid) ((bestAsk - bestBid) / bestBid) * 100.0 else 0.0
+
+                    com.example.data.model.OrderBookSnapshot(
+                        symbol = symbol,
+                        bids = mappedBids,
+                        asks = mappedAsks,
+                        buyPressurePercent = buyPressure,
+                        spreadPercent = spread
+                    )
+                } else null
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+
+        if (directBook != null) return Result.success(directBook)
+
+        if (quote == "PHP" && base != "USDT" && base != "USDC") {
+            val globalBook = GlobalCrossRateFetcher.getGlobalOrderBook(base, limit, usdtRate, symbol)
+            if (globalBook != null) return Result.success(globalBook)
+        }
+
+        val basePrice = getTicker(symbol).getOrNull()?.price ?: 5000000.0
+        val bids = (1..limit).map { i -> com.example.data.model.OrderBookEntry(basePrice * (1.0 - i * 0.001), 0.5 * i) }
+        val asks = (1..limit).map { i -> com.example.data.model.OrderBookEntry(basePrice * (1.0 + i * 0.001), 0.5 * i) }
+        val totalBidQty = bids.sumOf { it.quantity }
+        val totalAskQty = asks.sumOf { it.quantity }
+        val totalVol = totalBidQty + totalAskQty
+        val buyPressure = if (totalVol > 0) (totalBidQty / totalVol) * 100.0 else 50.0
+
+        return Result.success(
+            com.example.data.model.OrderBookSnapshot(
+                symbol = symbol,
+                bids = bids,
+                asks = asks,
+                buyPressurePercent = buyPressure,
+                spreadPercent = 0.2
+            )
+        )
     }
 
     override suspend fun submitOrder(
