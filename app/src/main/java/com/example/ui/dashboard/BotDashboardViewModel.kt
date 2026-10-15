@@ -200,6 +200,12 @@ class BotDashboardViewModel(
         viewModelScope.launch {
             repository.marketTickerFlow.collect { ticker ->
                 _uiState.update { it.copy(marketTicker = ticker) }
+                if (ticker != null && ticker.price <= 0.0) {
+                    val fallback = if (_uiState.value.botSettings.exchangePlatform == com.example.data.model.ExchangePlatform.BINANCE) "BTCUSDT" else "SOLPHP"
+                    if (_uiState.value.botSettings.symbol != fallback) {
+                        onSymbolSelected(fallback)
+                    }
+                }
             }
         }
         viewModelScope.launch {
@@ -513,10 +519,43 @@ class BotDashboardViewModel(
     }
 
     fun onScanBestMarketOpportunityClicked() {
-        val validSymbols = _uiState.value.availableSymbols.filter { it.lastPrice > 0.0 && it.symbol.any { ch -> ch.isLetter() } }
-        if (validSymbols.isEmpty()) return
+        val isBinance = _uiState.value.botSettings.exchangePlatform == com.example.data.model.ExchangePlatform.BINANCE
+        val validSymbols = _uiState.value.availableSymbols.filter {
+            it.lastPrice > 0.0 && it.volume24h > 0.0 && it.symbol.any { ch -> ch.isLetter() }
+        }
+        if (validSymbols.isEmpty()) {
+            val fallbackSymbol = if (isBinance) "BTCUSDT" else "SOLPHP"
+            onSymbolSelected(fallbackSymbol)
+            return
+        }
 
-        val best = validSymbols.maxByOrNull { kotlin.math.abs(it.priceChangePercent) } ?: validSymbols.first()
+        val tier1List = if (isBinance) {
+            listOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "PEPEUSDT", "SHIBUSDT", "SUIUSDT", "ADAUSDT", "TRXUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT")
+        } else {
+            listOf("SOLPHP", "XRPPHP", "BTCPHP", "ETHPHP", "DOGEPHP", "USDTPHP", "PEPEPHP", "SHIBPHP", "ADAPHP", "AVAXPHP", "LINKPHP", "ARBPHP", "POLPHP")
+        }
+
+        val minQuoteVolume = if (isBinance) 50_000.0 else 2_500_000.0
+        val highLiquidity = validSymbols.filter { (it.volume24h * it.lastPrice) >= minQuoteVolume }
+
+        val pool = if (highLiquidity.isNotEmpty()) {
+            highLiquidity
+        } else {
+            val tier1Present = validSymbols.filter { tier1List.contains(it.symbol.uppercase()) }
+            if (tier1Present.isNotEmpty()) tier1Present else validSymbols
+        }
+
+        val best = pool.maxByOrNull { sym ->
+            val quoteVol = sym.volume24h * sym.lastPrice
+            val isTier1 = tier1List.contains(sym.symbol.uppercase())
+            val tier1Bonus = if (isTier1) 50.0 else 0.0
+            val volBonus = (quoteVol / (if (isBinance) 100_000.0 else 1_000_000.0)).coerceAtMost(25.0)
+            val moveBonus = kotlin.math.abs(sym.priceChangePercent).coerceAtMost(30.0)
+            val dipBonus = if (sym.priceChangePercent < 0) kotlin.math.abs(sym.priceChangePercent) * 1.5 else 0.0
+
+            tier1Bonus + volBonus + moveBonus + dipBonus
+        } ?: validSymbols.first()
+
         onSymbolSelected(best.symbol)
         _uiState.update {
             it.copy(

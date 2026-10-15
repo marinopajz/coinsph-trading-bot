@@ -109,6 +109,26 @@ fun DashboardScreen(
     var selectedTab by remember { mutableStateOf(DashboardTab.MARKET) }
     var showHelpManual by remember { mutableStateOf(false) }
 
+    var isBatteryIgnoring by remember { mutableStateOf(false) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                runCatching {
+                    val powerManager = context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+                    isBatteryIgnoring = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val isCabinModeActive = isBatteryIgnoring || uiState.botStatus.state == BotState.RUNNING
+
     val totalQty = uiState.openPositions.sumOf { it.quantity }
     val totalCost = uiState.openPositions.sumOf { it.amountInvested }
     val avgEntry = if (totalQty > 0.0 && totalCost > 0.0) totalCost / totalQty else null
@@ -471,13 +491,23 @@ fun DashboardScreen(
                         Button(
                             onClick = { requestBatteryOptimizationBypass(context) },
                             shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B2230), contentColor = CoinsEmerald),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isCabinModeActive) CoinsEmerald.copy(alpha = 0.15f) else Color(0xFF1B2230),
+                                contentColor = CoinsEmerald
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(42.dp)
                                 .testTag("btn_battery_bypass")
                         ) {
-                            Text("🔋 UNLOCK 24/7 CABIN BACKGROUND MODE (BATTERY BYPASS)", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = CoinsEmerald)
+                            Text(
+                                text = if (isCabinModeActive) "✅ 24/7 CABIN MODE ACTIVE (BACKGROUND ON)" else "🔋 UNLOCK 24/7 CABIN BACKGROUND MODE",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp,
+                                color = CoinsEmerald,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
 

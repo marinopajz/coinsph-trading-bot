@@ -136,23 +136,34 @@ class PaperTradingExchangeClient(
                             var price = 0.0
                             var change = 0.0
                             var vol = 0.0
+                            val ticker = tickerMap[upper]
+                            val bid = ticker?.bidPrice?.toDoubleOrNull() ?: 0.0
+                            val ask = ticker?.askPrice?.toDoubleOrNull() ?: 0.0
 
                             if (globalUsdt != null) {
                                 price = globalUsdt.optDouble("lastPrice", 0.0) * usdtRate
                                 change = globalUsdt.optDouble("priceChangePercent", 0.0)
                                 vol = globalUsdt.optDouble("volume", 0.0)
                             } else {
-                                val ticker = tickerMap[upper]
                                 price = ticker?.lastPrice?.toDoubleOrNull() ?: 0.0
                                 change = ticker?.priceChangePercent?.toDoubleOrNull() ?: 0.0
                                 vol = ticker?.volume?.toDoubleOrNull() ?: 0.0
                             }
 
-                            if (tickerMap.isNotEmpty() && globalTickers.isNotEmpty() && price <= 0.0) {
-                                return@mapNotNull null
+                            if (price <= 0.0) {
+                                if (bid > 0.0 && ask > 0.0) price = (bid + ask) / 2.0
+                                else if (bid > 0.0) price = bid
+                                else if (ask > 0.0) price = ask
                             }
 
-                            sym.copy(lastPrice = if (price > 0.0) price else 1.0, priceChangePercent = change, volume24h = vol)
+                            if (tickerMap.isNotEmpty()) {
+                                if (price <= 0.0 && bid <= 0.0 && ask <= 0.0) {
+                                    return@mapNotNull null
+                                }
+                            }
+
+                            val finalPrice = if (price > 0.0) price else 1.0
+                            sym.copy(lastPrice = finalPrice, priceChangePercent = change, volume24h = vol)
                         }
                         cachedSymbols = list
                         cacheTimestamp = System.currentTimeMillis()

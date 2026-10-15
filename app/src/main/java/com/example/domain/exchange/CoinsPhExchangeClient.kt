@@ -228,11 +228,14 @@ class CoinsPhExchangeClient(
                             else if (ask > 0.0) price = ask
                         }
 
-                        if (tickerMap.isNotEmpty() && price <= 0.0 && bid <= 0.0 && ask <= 0.0) {
-                            return@mapNotNull null
+                        if (tickerMap.isNotEmpty()) {
+                            if (price <= 0.0 && bid <= 0.0 && ask <= 0.0) {
+                                return@mapNotNull null
+                            }
                         }
 
-                        sym.copy(lastPrice = if (price > 0.0) price else 1.0, priceChangePercent = change, volume24h = vol)
+                        val finalPrice = if (price > 0.0) price else 1.0
+                        sym.copy(lastPrice = finalPrice, priceChangePercent = change, volume24h = vol)
                     }
                     Result.success(list)
                 } else {
