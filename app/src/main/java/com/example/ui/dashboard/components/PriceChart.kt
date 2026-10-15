@@ -2,6 +2,7 @@ package com.example.ui.dashboard.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -317,41 +318,79 @@ fun PriceChart(
                 }
             }
 
-            // Position Overlay Legend Badge Row
+            // Position Overlay Target Banner (3 Compact Columns)
             if (averageEntryPrice != null && averageEntryPrice > 0.0) {
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF1B2230), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = String.format(Locale.US, "Entry: %,.2f", averageEntryPrice),
-                        color = Color(0xFF29B6F6),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    takeProfitPrice?.let { tp ->
-                        Text(
-                            text = String.format(Locale.US, "TP: %,.2f", tp),
-                            color = CoinsEmerald,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
+                    // Entry Box
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(Color(0xFF1B2230), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                    ) {
+                        Column {
+                            Text("ENTRY", fontSize = 9.sp, color = TextMuted, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = formatChartPrice(averageEntryPrice),
+                                color = Color(0xFF29B6F6),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
-                    stopLossPrice?.let { sl ->
-                        Text(
-                            text = String.format(Locale.US, "SL: %,.2f", sl),
-                            color = LossRed,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
+
+                    // TP Target Box
+                    if (takeProfitPrice != null && takeProfitPrice > 0.0) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(Color(0xFF1B2230), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                        ) {
+                            Column {
+                                Text("TAKE PROFIT", fontSize = 9.sp, color = TextMuted, fontWeight = FontWeight.Medium)
+                                Text(
+                                    text = formatChartPrice(takeProfitPrice),
+                                    color = CoinsEmerald,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+
+                    // Stop Loss Box
+                    if (stopLossPrice != null && stopLossPrice > 0.0) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(Color(0xFF1B2230), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                        ) {
+                            Column {
+                                Text("STOP LOSS", fontSize = 9.sp, color = TextMuted, fontWeight = FontWeight.Medium)
+                                Text(
+                                    text = formatChartPrice(stopLossPrice),
+                                    color = LossRed,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -396,22 +435,37 @@ fun PriceChart(
                                 }
                             }
                             .pointerInput(visibleCandlesSlice) {
-                                detectTapGestures { tapOffset ->
-                                    if (visibleCandlesSlice.isNotEmpty()) {
-                                        val count = visibleCandlesSlice.size
-                                        val stepX = size.width / count.coerceAtLeast(1)
-                                        val tappedIndex = (tapOffset.x / stepX).toInt().coerceIn(0, count - 1)
-                                        selectedCandle = visibleCandlesSlice[tappedIndex]
+                                detectTapGestures(
+                                    onTap = { tapOffset ->
+                                        if (visibleCandlesSlice.isNotEmpty()) {
+                                            val count = visibleCandlesSlice.size
+                                            val rightAxisWidthPx = 78.dp.toPx()
+                                            val pWidth = (size.width - rightAxisWidthPx).coerceAtLeast(1f)
+                                            val stepX = pWidth / count.coerceAtLeast(1)
+                                            val tappedIndex = (tapOffset.x / stepX).toInt().coerceIn(0, count - 1)
+                                            val tapped = visibleCandlesSlice[tappedIndex]
+                                            selectedCandle = if (selectedCandle == tapped) null else tapped
+                                        }
+                                    },
+                                    onLongPress = { tapOffset ->
+                                        if (visibleCandlesSlice.isNotEmpty()) {
+                                            val count = visibleCandlesSlice.size
+                                            val rightAxisWidthPx = 78.dp.toPx()
+                                            val pWidth = (size.width - rightAxisWidthPx).coerceAtLeast(1f)
+                                            val stepX = pWidth / count.coerceAtLeast(1)
+                                            val tappedIndex = (tapOffset.x / stepX).toInt().coerceIn(0, count - 1)
+                                            selectedCandle = visibleCandlesSlice[tappedIndex]
+                                        }
                                     }
-                                }
+                                )
                             }
                             .testTag("chart_canvas")
                     ) {
                         val width = size.width
                         val height = size.height
 
-                        val plotWidth = width * 0.82f
-                        val axisWidth = width * 0.18f
+                        val rightAxisWidthPx = 78.dp.toPx()
+                        val plotWidth = (width - rightAxisWidthPx).coerceAtLeast(1f)
 
                         val pricePlotHeight = height * 0.68f
                         val volumeTop = height * 0.72f
@@ -844,6 +898,105 @@ fun PriceChart(
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             color = if (cPct >= 0) CoinsEmerald else LossRed,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Floating CoinMarketCap Style OHLCV Crosshair Inspector Tooltip
+                if (selectedCandle != null) {
+                    val selIdx = visibleCandlesSlice.indexOf(selectedCandle)
+                    val isOnRightHalf = selIdx >= (visibleCandlesSlice.size / 2)
+                    val alignModifier = if (isOnRightHalf) {
+                        Modifier.align(Alignment.TopStart).padding(start = 6.dp, top = 28.dp)
+                    } else {
+                        Modifier.align(Alignment.TopEnd).padding(end = 82.dp, top = 28.dp)
+                    }
+
+                    Box(
+                        modifier = alignModifier
+                            .background(Color(0xEE141923), RoundedCornerShape(10.dp))
+                            .border(1.dp, CoinsEmerald.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                            .clickable { selectedCandle = null }
+                            .padding(10.dp)
+                            .testTag("chart_inspector_tooltip")
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(0.52f),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(selectedCandle!!.openTime)),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextMuted,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = "✕",
+                                    fontSize = 10.sp,
+                                    color = TextMuted,
+                                    modifier = Modifier.clickable { selectedCandle = null }
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(modifier = Modifier.fillMaxWidth(0.52f), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Open", fontSize = 10.sp, color = TextMuted)
+                                Text(formatChartPrice(selectedCandle!!.open), fontSize = 10.sp, color = TextPrimary, fontFamily = FontFamily.Monospace)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(0.52f), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("High", fontSize = 10.sp, color = TextMuted)
+                                Text(formatChartPrice(selectedCandle!!.high), fontSize = 10.sp, color = TextPrimary, fontFamily = FontFamily.Monospace)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(0.52f), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Low", fontSize = 10.sp, color = TextMuted)
+                                Text(formatChartPrice(selectedCandle!!.low), fontSize = 10.sp, color = TextPrimary, fontFamily = FontFamily.Monospace)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(0.52f), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Close", fontSize = 10.sp, color = TextMuted)
+                                Text(formatChartPrice(selectedCandle!!.close), fontSize = 10.sp, color = TextPrimary, fontFamily = FontFamily.Monospace)
+                            }
+                            val cDiff = selectedCandle!!.close - selectedCandle!!.open
+                            val cPct = if (selectedCandle!!.open > 0) (cDiff / selectedCandle!!.open) * 100.0 else 0.0
+                            val cColor = if (cPct >= 0) CoinsEmerald else LossRed
+                            Row(modifier = Modifier.fillMaxWidth(0.52f), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Change", fontSize = 10.sp, color = TextMuted)
+                                Text(
+                                    text = String.format(Locale.US, "%s (%+.2f%%)", formatChartPrice(cDiff), cPct),
+                                    fontSize = 10.sp,
+                                    color = cColor,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(0.52f), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Volume", fontSize = 10.sp, color = TextMuted)
+                                Text(formatCompactNumber(selectedCandle!!.volume), fontSize = 10.sp, color = TextPrimary, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                }
+
+                // Jump to Latest Button
+                if (clampedScrollOffset > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 4.dp, end = 82.dp)
+                            .background(CoinsEmerald, RoundedCornerShape(12.dp))
+                            .clickable {
+                                scrollOffset = 0
+                                selectedCandle = null
+                            }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .testTag("btn_jump_latest")
+                    ) {
+                        Text(
+                            text = "⏩ Latest",
+                            color = Color.Black,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
