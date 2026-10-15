@@ -416,10 +416,20 @@ fun PriceChart(
                         )
                     }
                 } else {
-                    val minPrice = remember(visibleCandlesSlice) { visibleCandlesSlice.minOfOrNull { it.low } ?: currentPrice }
-                    val maxPrice = remember(visibleCandlesSlice) { visibleCandlesSlice.maxOfOrNull { it.high } ?: currentPrice }
+                    val rawMin = remember(visibleCandlesSlice, currentPrice) {
+                        val lows = visibleCandlesSlice.map { it.low }
+                        if (lows.isNotEmpty()) lows.minOf { it }.coerceAtMost(currentPrice) else currentPrice
+                    }
+                    val rawMax = remember(visibleCandlesSlice, currentPrice) {
+                        val highs = visibleCandlesSlice.map { it.high }
+                        if (highs.isNotEmpty()) highs.maxOf { it }.coerceAtLeast(currentPrice) else currentPrice
+                    }
+                    val rawRange = remember(rawMin, rawMax) { (rawMax - rawMin).coerceAtLeast(rawMax * 0.002) }
+
+                    val displayMaxPrice = remember(rawMax, rawRange) { rawMax + (rawRange * 0.15) }
+                    val displayMinPrice = remember(rawMin, rawRange) { (rawMin - (rawRange * 0.12)).coerceAtLeast(0.0) }
+                    val displayRange = remember(displayMinPrice, displayMaxPrice) { (displayMaxPrice - displayMinPrice).coerceAtLeast(1.0) }
                     val maxVolume = remember(visibleCandlesSlice) { (visibleCandlesSlice.maxOfOrNull { it.volume } ?: 1.0).coerceAtLeast(1.0) }
-                    val range = remember(minPrice, maxPrice) { (maxPrice - minPrice).coerceAtLeast(1.0) }
 
                     Canvas(
                         modifier = Modifier
@@ -475,7 +485,7 @@ fun PriceChart(
                         val usableHeight = (pricePlotHeight - topPadding).coerceAtLeast(1f)
 
                         fun mapPriceToY(price: Double): Float {
-                            val norm = ((price - minPrice) / range).toFloat().coerceIn(0f, 1f)
+                            val norm = ((price - displayMinPrice) / displayRange).toFloat().coerceIn(0f, 1f)
                             return topPadding + (usableHeight - (norm * usableHeight))
                         }
 
@@ -490,7 +500,7 @@ fun PriceChart(
                         // 1. Main Price Pane: Draw 5 Grid Lines & Right Price Scale Labels
                         for (i in 0..4) {
                             val y = topPadding + (usableHeight * (i / 4f))
-                            val gridPrice = maxPrice - (i / 4f) * range
+                            val gridPrice = displayMaxPrice - (i / 4f) * displayRange
                             drawLine(
                                 color = Color.White.copy(alpha = 0.06f),
                                 start = Offset(0f, y),
@@ -510,7 +520,7 @@ fun PriceChart(
                         if (averageEntryPrice != null && averageEntryPrice > 0.0) {
                             val dashEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
 
-                            if (averageEntryPrice in minPrice..maxPrice) {
+                            if (averageEntryPrice in displayMinPrice..displayMaxPrice) {
                                 val entryY = mapPriceToY(averageEntryPrice)
                                 drawLine(
                                     color = Color(0xFF29B6F6),
@@ -521,7 +531,7 @@ fun PriceChart(
                                 )
                             }
 
-                            if (takeProfitPrice != null && takeProfitPrice in minPrice..maxPrice) {
+                            if (takeProfitPrice != null && takeProfitPrice in displayMinPrice..displayMaxPrice) {
                                 val tpY = mapPriceToY(takeProfitPrice)
                                 drawLine(
                                     color = CoinsEmerald,
@@ -532,7 +542,7 @@ fun PriceChart(
                                 )
                             }
 
-                            if (stopLossPrice != null && stopLossPrice in minPrice..maxPrice) {
+                            if (stopLossPrice != null && stopLossPrice in displayMinPrice..displayMaxPrice) {
                                 val slY = mapPriceToY(stopLossPrice)
                                 drawLine(
                                     color = LossRed,
