@@ -341,7 +341,8 @@ fun DashboardScreen(
                         MarketWatchlistCard(
                             availableSymbols = uiState.availableSymbols,
                             activeSymbol = uiState.botSettings.symbol,
-                            onSymbolSelected = { viewModel.onSymbolSelected(it) }
+                            onSymbolSelected = { viewModel.onSymbolSelected(it) },
+                            onScanBestCoinClicked = { viewModel.onScanBestMarketOpportunityClicked() }
                         )
                     }
 
@@ -420,6 +421,7 @@ fun DashboardScreen(
                             onPartialTakeProfitToggled = { viewModel.onPartialTakeProfitToggled(it) },
                             onAtrDynamicTargetsToggled = { viewModel.onAtrDynamicTargetsToggled(it) },
                             onOrderBookWallFilterToggled = { viewModel.onOrderBookWallFilterToggled(it) },
+                            onKellyDynamicSizingToggled = { viewModel.onKellyDynamicSizingToggled(it) },
                             onRunBacktestClicked = { viewModel.onRunBacktestClicked() },
                             onAutoOptimizeClicked = { viewModel.onAutoOptimizeClicked() }
                         )
@@ -432,6 +434,22 @@ fun DashboardScreen(
                             portfolio = uiState.portfolio,
                             quoteCurrency = uiState.botSettings.quoteCurrency
                         )
+                    }
+
+                    if (uiState.botSettings.tradingMode == TradingMode.PAPER) {
+                        item {
+                            Button(
+                                onClick = { viewModel.onResetPaperPortfolioClicked() },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B2230), contentColor = LossRed),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(42.dp)
+                                    .testTag("btn_reset_paper_portfolio")
+                            ) {
+                                Text("🔄 RESET PAPER PORTFOLIO & PNL", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = LossRed)
+                            }
+                        }
                     }
 
                     item {

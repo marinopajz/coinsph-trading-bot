@@ -831,3 +831,147 @@ class VwapPinbarStrategy : TradingStrategy {
         )
     }
 }
+
+/**
+ * Autonomous Quant Ensemble Strategy (AI God Mode)
+ * Detects market regime (Trending vs. Ranging vs. Pullback) and combines Multi-Strategy
+ * Consensus Voting across DCA, RSI, Bollinger Bands, VWAP, and Turtle Breakout.
+ */
+class AiGodModeStrategy : TradingStrategy {
+    override val type: StrategyType = StrategyType.AI_GOD_MODE
+
+    private val dcaDelegate = DcaStrategy()
+    private val rsiDelegate = RsiSwingStrategy()
+    private val bollingerDelegate = BollingerBandsStrategy()
+    private val turtleDelegate = TurtleBreakoutStrategy()
+    private val vwapDelegate = VwapPinbarStrategy()
+
+    override fun evaluate(
+        settings: BotSettings,
+        currentTicker: MarketTicker,
+        priceHistory: List<PricePoint>,
+        openPositions: List<OpenPosition>,
+        allocatedCapital: Double,
+        candles: List<CandleStick>
+    ): TradingSignal {
+        val currentPrice = currentTicker.price
+        if (currentPrice <= 0.0) {
+            return TradingSignal(SignalAction.HOLD, "Invalid market price ($currentPrice)")
+        }
+
+        val (targetTp, targetSl) = getEffectiveTargets(settings, candles)
+
+        // Step 1: Smart Exit Consensus
+        if (openPositions.isNotEmpty()) {
+            val totalQty = openPositions.sumOf { it.quantity }
+            val totalCost = openPositions.sumOf { it.amountInvested }
+            if (totalQty > 0.0 && totalCost > 0.0) {
+                val avgEntry = totalCost / totalQty
+                val profitPct = ((currentPrice - avgEntry) / avgEntry) * 100.0
+
+                if (settings.breakEvenLockEnabled && settings.breakEvenActivated && profitPct <= 0.30) {
+                    return TradingSignal(
+                        action = SignalAction.SELL,
+                        reason = String.format("[AI God Mode] Break-Even Lock triggered at +%.2f%%", profitPct),
+                        suggestedPrice = currentPrice
+                    )
+                }
+
+                if (profitPct >= targetTp) {
+                    return TradingSignal(
+                        action = SignalAction.SELL,
+                        reason = String.format("[AI God Mode] Consensus Take-Profit triggered: +%.2f%% (Target: +%.2f%%)", profitPct, targetTp),
+                        suggestedPrice = currentPrice
+                    )
+                }
+
+                if (settings.neverSellAtLoss) {
+                    if (profitPct <= -targetSl) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = String.format("[AI God Mode] Spot HODL Guard active: holding through drawdown (%+.2f%%)", profitPct)
+                        )
+                    }
+                } else {
+                    if (profitPct <= -targetSl) {
+                        return TradingSignal(
+                            action = SignalAction.SELL,
+                            reason = String.format("[AI God Mode] Consensus Stop-Loss triggered: %.2f%% (Limit: -%.2f%%)", profitPct, targetSl),
+                            suggestedPrice = currentPrice
+                        )
+                    }
+                }
+
+                // Check sub-strategy delegate exits
+                val delegates = listOf(bollingerDelegate, vwapDelegate, rsiDelegate, turtleDelegate)
+                for (delegate in delegates) {
+                    val subSignal = delegate.evaluate(settings, currentTicker, priceHistory, openPositions, allocatedCapital, candles)
+                    if (subSignal.action == SignalAction.SELL && profitPct >= 0.35) {
+                        return subSignal.copy(reason = "[AI God Mode | ${delegate.type.label}] ${subSignal.reason}")
+                    }
+                }
+            }
+        }
+
+        // Step 2: Market Regime Detection & Multi-Strategy Confluence Entry
+        val ma7 = if (candles.size >= 7) candles.takeLast(7).map { it.close }.average() else currentPrice
+        val ma20 = if (candles.size >= 20) candles.takeLast(20).map { it.close }.average() else currentPrice
+        val trendStrengthPct = if (ma20 > 0) ((ma7 - ma20) / ma20) * 100.0 else 0.0
+
+        val regimeName = when {
+            trendStrengthPct >= 0.8 -> "BULL TREND"
+            trendStrengthPct <= -0.8 -> "PULLBACK"
+            else -> "RANGING"
+        }
+
+        // Sub-strategy votes
+        val dcaSig = dcaDelegate.evaluate(settings, currentTicker, priceHistory, openPositions, allocatedCapital, candles)
+        val rsiSig = rsiDelegate.evaluate(settings, currentTicker, priceHistory, openPositions, allocatedCapital, candles)
+        val bollSig = bollingerDelegate.evaluate(settings, currentTicker, priceHistory, openPositions, allocatedCapital, candles)
+        val turtleSig = turtleDelegate.evaluate(settings, currentTicker, priceHistory, openPositions, allocatedCapital, candles)
+        val vwapSig = vwapDelegate.evaluate(settings, currentTicker, priceHistory, openPositions, allocatedCapital, candles)
+
+        val allSignals = listOf(dcaSig, rsiSig, bollSig, turtleSig, vwapSig)
+        val buyVotes = allSignals.count { it.action == SignalAction.BUY }
+
+        val hasMultiConfluence = buyVotes >= 2
+        val hasStrongMomentum = trendStrengthPct >= 0.8 && turtleSig.action == SignalAction.BUY
+        val hasDipEntry = openPositions.isEmpty() && (vwapSig.action == SignalAction.BUY || bollSig.action == SignalAction.BUY || rsiSig.action == SignalAction.BUY)
+
+        if (hasMultiConfluence || hasStrongMomentum || hasDipEntry) {
+            val winningSignal = allSignals.firstOrNull { it.action == SignalAction.BUY } ?: dcaSig
+
+            var orderSize = settings.orderAmount
+            if (settings.kellyDynamicSizingEnabled) {
+                val remainingCap = (settings.maxCapital - allocatedCapital).coerceAtLeast(0.0)
+                val kellyScale = 1.0 + (buyVotes.coerceAtMost(3) * 0.15)
+                orderSize = (settings.orderAmount * kellyScale).coerceAtMost(settings.maxOrderValue).coerceAtMost(remainingCap)
+            }
+
+            val prefixReason = String.format(
+                java.util.Locale.US,
+                "[AI God Mode | Regime: %s | Votes: %d/5] %s",
+                regimeName,
+                buyVotes,
+                winningSignal.reason
+            )
+
+            return TradingSignal(
+                action = SignalAction.BUY,
+                reason = prefixReason,
+                suggestedAmount = orderSize,
+                suggestedPrice = currentPrice
+            )
+        }
+
+        return TradingSignal(
+            action = SignalAction.HOLD,
+            reason = String.format(
+                java.util.Locale.US,
+                "[AI God Mode | Regime: %s | Votes: %d/5] Awaiting quant confluence signal",
+                regimeName,
+                buyVotes
+            )
+        )
+    }
+}

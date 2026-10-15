@@ -537,4 +537,33 @@ class TradingStrategyUnitTest {
         assertEquals(SignalAction.BUY, signal.action)
         assertTrue(signal.reason.contains("Whale VWAP Discount"))
     }
+
+    @Test
+    fun aiGodModeStrategy_combinesMultiStrategyConfluenceAndTriggersBuy() {
+        val strategy = com.example.domain.strategy.AiGodModeStrategy()
+        val candles = (0..20).map { i ->
+            CandleStick(
+                openTime = 1700000000000L + i * 300000L,
+                open = 5000000.0,
+                high = 5100000.0,
+                low = 4800000.0,
+                close = 4980000.0,
+                volume = 20.0,
+                closeTime = 1700000300000L + i * 300000L
+            )
+        }
+
+        val discountedTicker = defaultTicker.copy(price = 4850000.0)
+        val signal = strategy.evaluate(
+            settings = defaultSettings.copy(strategyType = StrategyType.AI_GOD_MODE, kellyDynamicSizingEnabled = true),
+            currentTicker = discountedTicker,
+            priceHistory = emptyList(),
+            openPositions = emptyList(),
+            allocatedCapital = 0.0,
+            candles = candles
+        )
+
+        assertEquals(SignalAction.BUY, signal.action)
+        assertTrue(signal.reason.contains("AI God Mode"))
+    }
 }

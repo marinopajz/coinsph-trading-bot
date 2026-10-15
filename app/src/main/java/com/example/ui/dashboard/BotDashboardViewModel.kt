@@ -479,6 +479,46 @@ class BotDashboardViewModel(
         updateSettings(current.copy(orderBookWallFilterEnabled = enabled))
     }
 
+    fun onKellyDynamicSizingToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(kellyDynamicSizingEnabled = enabled))
+    }
+
+    fun onResetPaperPortfolioClicked() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isOperationInProgress = true) }
+            val res = repository.resetPaperPortfolio()
+            res.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        snackbarMessage = "Paper portfolio & PnL reset to default!"
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isOperationInProgress = false,
+                        errorMessage = "Reset failed: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun onScanBestMarketOpportunityClicked() {
+        val validSymbols = _uiState.value.availableSymbols.filter { it.lastPrice > 0.0 && it.symbol.any { ch -> ch.isLetter() } }
+        if (validSymbols.isEmpty()) return
+
+        val best = validSymbols.maxByOrNull { kotlin.math.abs(it.priceChangePercent) } ?: validSymbols.first()
+        onSymbolSelected(best.symbol)
+        _uiState.update {
+            it.copy(
+                snackbarMessage = String.format(java.util.Locale.US, "⚡ AI Scanner selected %s (%+.2f%%)", best.symbol, best.priceChangePercent)
+            )
+        }
+    }
+
     fun onPauseBotClicked() {
         if (_uiState.value.isOperationInProgress) return
         viewModelScope.launch {

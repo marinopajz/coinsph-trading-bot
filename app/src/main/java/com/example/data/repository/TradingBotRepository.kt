@@ -3,6 +3,7 @@ package com.example.data.repository
 import com.example.data.local.dao.TradingDao
 import com.example.data.local.entity.BotSettingsEntity
 import com.example.data.local.entity.OpenPositionEntity
+import com.example.data.local.entity.PaperBalanceEntity
 import com.example.data.local.entity.PortfolioSnapshotEntity
 import com.example.data.local.entity.TradeLogEntity
 import com.example.data.model.BotRuntimeStatus
@@ -71,6 +72,7 @@ interface TradingBotRepository {
     suspend fun autoOptimizeStrategy(): Result<com.example.data.model.BacktestResult>
     suspend fun switchExchangePlatform(platform: com.example.data.model.ExchangePlatform): Result<Unit>
     suspend fun configureLiveCredentials(apiKey: String, secretKey: String): Result<Unit>
+    suspend fun resetPaperPortfolio(): Result<Unit>
     fun hasLiveCredentials(): Boolean
     fun onAppForegrounded()
     fun onAppBackgrounded()
@@ -94,6 +96,7 @@ class TradingBotRepositoryImpl(
     private val bollingerStrategy = com.example.domain.strategy.BollingerBandsStrategy()
     private val turtleStrategy = com.example.domain.strategy.TurtleBreakoutStrategy()
     private val vwapStrategy = com.example.domain.strategy.VwapPinbarStrategy()
+    private val godModeStrategy = com.example.domain.strategy.AiGodModeStrategy()
 
     private val _botSettings = MutableStateFlow(BotSettings())
     override val botSettingsFlow: Flow<BotSettings> = _botSettings.asStateFlow()
@@ -187,7 +190,8 @@ class TradingBotRepositoryImpl(
                         partialTakeProfitEnabled = prefs.getBoolean("partialTakeProfitEnabled", restoredSettings.partialTakeProfitEnabled),
                         partialTakeProfitPercentage = prefs.getFloat("partialTakeProfitPercentage", restoredSettings.partialTakeProfitPercentage.toFloat()).toDouble(),
                         atrDynamicTargetsEnabled = prefs.getBoolean("atrDynamicTargetsEnabled", restoredSettings.atrDynamicTargetsEnabled),
-                        orderBookWallFilterEnabled = prefs.getBoolean("orderBookWallFilterEnabled", restoredSettings.orderBookWallFilterEnabled)
+                        orderBookWallFilterEnabled = prefs.getBoolean("orderBookWallFilterEnabled", restoredSettings.orderBookWallFilterEnabled),
+                        kellyDynamicSizingEnabled = prefs.getBoolean("kellyDynamicSizingEnabled", restoredSettings.kellyDynamicSizingEnabled)
                     )
                 }
                 _botSettings.value = restoredSettings
@@ -208,7 +212,8 @@ class TradingBotRepositoryImpl(
                         partialTakeProfitEnabled = prefs.getBoolean("partialTakeProfitEnabled", false),
                         partialTakeProfitPercentage = prefs.getFloat("partialTakeProfitPercentage", 1.8f).toDouble(),
                         atrDynamicTargetsEnabled = prefs.getBoolean("atrDynamicTargetsEnabled", false),
-                        orderBookWallFilterEnabled = prefs.getBoolean("orderBookWallFilterEnabled", false)
+                        orderBookWallFilterEnabled = prefs.getBoolean("orderBookWallFilterEnabled", false),
+                        kellyDynamicSizingEnabled = prefs.getBoolean("kellyDynamicSizingEnabled", false)
                     )
                 }
             }
@@ -358,6 +363,7 @@ class TradingBotRepositoryImpl(
             putFloat("partialTakeProfitPercentage", updated.partialTakeProfitPercentage.toFloat())
             putBoolean("atrDynamicTargetsEnabled", updated.atrDynamicTargetsEnabled)
             putBoolean("orderBookWallFilterEnabled", updated.orderBookWallFilterEnabled)
+            putBoolean("kellyDynamicSizingEnabled", updated.kellyDynamicSizingEnabled)
             apply()
         }
 
@@ -662,6 +668,7 @@ class TradingBotRepositoryImpl(
             StrategyType.BOLLINGER -> bollingerStrategy
             StrategyType.TURTLE_BREAKOUT -> turtleStrategy
             StrategyType.VWAP_REVERSAL -> vwapStrategy
+            StrategyType.AI_GOD_MODE -> godModeStrategy
         }
 
         val signal = strategy.evaluate(
@@ -749,8 +756,18 @@ class TradingBotRepositoryImpl(
         ticker: MarketTicker
     ) {
         val client = getActiveExchangeClient()
-        val amount = signal.suggestedAmount ?: settings.orderAmount
+        var baseAmount = signal.suggestedAmount ?: settings.orderAmount
+        val remainingCap = (settings.maxCapital - _portfolio.value.allocatedCapital).coerceAtLeast(0.0)
+
+        if (settings.kellyDynamicSizingEnabled) {
+            val totalTrades = _portfolio.value.totalTrades
+            val winRate = _portfolio.value.winRate
+            val kellyConfidenceMultiplier = if (totalTrades >= 3 && winRate >= 60.0) 1.2 else if (totalTrades >= 3 && winRate < 40.0) 0.75 else 1.0
+            baseAmount = (baseAmount * kellyConfidenceMultiplier).coerceAtMost(settings.maxOrderValue).coerceAtMost(remainingCap)
+        }
+
         val price = signal.suggestedPrice ?: ticker.price
+        val amount = baseAmount
 
         val result = client.submitOrder(
             symbol = settings.symbol,
@@ -1011,6 +1028,41 @@ class TradingBotRepositoryImpl(
         return Result.success(Unit)
     }
 
+    override suspend fun resetPaperPortfolio(): Result<Unit> {
+        _openPositions.value = emptyList()
+        _tradeLogs.value = emptyList()
+        
+        coroutineScope.launch {
+            tradingDao?.deleteAllOpenPositions()
+            tradingDao?.deleteAllTradeLogs()
+            tradingDao?.savePaperBalance(PaperBalanceEntity("PHP", 50000.0))
+            tradingDao?.savePaperBalance(PaperBalanceEntity("USDT", 1000.0))
+        }
+
+        val quoteCurr = _botSettings.value.quoteCurrency
+        val defaultQuoteBal = if (quoteCurr == "PHP") 50000.0 else 1000.0
+        
+        val newPort = PortfolioSnapshot(
+            quoteBalance = defaultQuoteBal,
+            baseBalance = 0.0,
+            quoteCurrency = quoteCurr,
+            allocatedCapital = 0.0,
+            totalRealizedPnl = 0.0,
+            unrealizedPnl = 0.0,
+            winRate = 0.0,
+            totalTrades = 0,
+            winningTrades = 0,
+            dailyPnl = 0.0
+        )
+        _portfolio.value = newPort
+        
+        coroutineScope.launch {
+            tradingDao?.savePortfolioSnapshot(PortfolioSnapshotEntity.fromDomain(newPort))
+        }
+
+        return Result.success(Unit)
+    }
+
     private suspend fun addTradeLog(log: TradeLog) {
         val current = _tradeLogs.value.toMutableList()
         current.add(0, log)
@@ -1118,6 +1170,12 @@ class TradingBotRepositoryImpl(
                 takeProfitPercentage = 2.0,
                 neverSellAtLoss = true,
                 atrDynamicTargetsEnabled = true
+            ),
+            currentSettings.copy(
+                strategyType = StrategyType.AI_GOD_MODE,
+                atrDynamicTargetsEnabled = true,
+                kellyDynamicSizingEnabled = true,
+                breakEvenLockEnabled = true
             )
         )
 
@@ -1152,6 +1210,7 @@ class TradingBotRepositoryImpl(
             StrategyType.BOLLINGER -> bollingerStrategy
             StrategyType.TURTLE_BREAKOUT -> turtleStrategy
             StrategyType.VWAP_REVERSAL -> vwapStrategy
+            StrategyType.AI_GOD_MODE -> godModeStrategy
         }
 
         val simulatedPositions = mutableListOf<OpenPosition>()

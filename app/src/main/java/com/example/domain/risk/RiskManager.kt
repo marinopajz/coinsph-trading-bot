@@ -38,7 +38,13 @@ class RiskManager {
         // 2. Daily Loss Limit Check
         if (dailyRealizedLoss >= settings.maxDailyLoss) {
             return RiskCheckResult.Rejected(
-                "Daily loss limit reached: Accumulated loss is ${dailyRealizedLoss} ${settings.quoteCurrency} (Limit: ${settings.maxDailyLoss})"
+                String.format(
+                    java.util.Locale.US,
+                    "Daily loss limit reached: Accumulated loss is %.2f %s (Limit: %.2f)",
+                    dailyRealizedLoss,
+                    settings.quoteCurrency,
+                    settings.maxDailyLoss
+                )
             )
         }
 

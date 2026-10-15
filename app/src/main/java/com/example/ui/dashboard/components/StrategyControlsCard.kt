@@ -77,11 +77,12 @@ fun StrategyControlsCard(
     onPartialTakeProfitToggled: (Boolean) -> Unit = {},
     onAtrDynamicTargetsToggled: (Boolean) -> Unit = {},
     onOrderBookWallFilterToggled: (Boolean) -> Unit = {},
+    onKellyDynamicSizingToggled: (Boolean) -> Unit = {},
     onRunBacktestClicked: () -> Unit = {},
     onAutoOptimizeClicked: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val strategies = listOf(StrategyType.DCA, StrategyType.RSI_SWING, StrategyType.GRID, StrategyType.BOLLINGER, StrategyType.TURTLE_BREAKOUT, StrategyType.VWAP_REVERSAL)
+    val strategies = listOf(StrategyType.DCA, StrategyType.RSI_SWING, StrategyType.GRID, StrategyType.BOLLINGER, StrategyType.TURTLE_BREAKOUT, StrategyType.VWAP_REVERSAL, StrategyType.AI_GOD_MODE)
     val selectedIndex = strategies.indexOf(settings.strategyType).coerceAtLeast(0)
 
     var orderAmountText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.orderAmount.toString()) }
@@ -144,6 +145,7 @@ fun StrategyControlsCard(
                                     StrategyType.BOLLINGER -> "BOLL"
                                     StrategyType.TURTLE_BREAKOUT -> "BREAKOUT"
                                     StrategyType.VWAP_REVERSAL -> "VWAP"
+                                    StrategyType.AI_GOD_MODE -> "⚡ GOD MODE"
                                 },
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = if (selectedIndex == index) FontWeight.Bold else FontWeight.Normal
@@ -265,7 +267,7 @@ fun StrategyControlsCard(
                                 .testTag("input_grid_levels")
                         )
                     }
-                    StrategyType.BOLLINGER, StrategyType.TURTLE_BREAKOUT, StrategyType.VWAP_REVERSAL -> {
+                    StrategyType.BOLLINGER, StrategyType.TURTLE_BREAKOUT, StrategyType.VWAP_REVERSAL, StrategyType.AI_GOD_MODE -> {
                         OutlinedTextField(
                             value = takeProfitText,
                             onValueChange = {
@@ -486,6 +488,21 @@ fun StrategyControlsCard(
                             onCheckedChange = { onOrderBookWallFilterToggled(it) },
                             colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
                             modifier = Modifier.scale(0.8f).testTag("switch_orderbook_wall")
+                        )
+                    }
+
+                    // Toggle 10: Half-Kelly Dynamic Sizing
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Half-Kelly Dynamic Sizing (0.6x–1.5x)", color = TextPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = settings.kellyDynamicSizingEnabled,
+                            onCheckedChange = { onKellyDynamicSizingToggled(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
+                            modifier = Modifier.scale(0.8f).testTag("switch_kelly_sizing")
                         )
                     }
 

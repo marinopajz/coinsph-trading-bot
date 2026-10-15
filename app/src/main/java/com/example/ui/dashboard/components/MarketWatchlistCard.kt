@@ -53,6 +53,7 @@ fun MarketWatchlistCard(
     availableSymbols: List<CoinsSymbolInfo>,
     activeSymbol: String,
     onSymbolSelected: (String) -> Unit,
+    onScanBestCoinClicked: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedFilter by remember { mutableStateOf("Featured") }
@@ -102,13 +103,33 @@ fun MarketWatchlistCard(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            Text(
-                text = "📊 LIVE MARKET WATCHLIST (${totalMatchingCount} ASSETS)",
-                color = TextMuted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "📊 LIVE MARKET WATCHLIST (${totalMatchingCount} ASSETS)",
+                    color = TextMuted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Box(
+                    modifier = Modifier
+                        .background(CoinsEmerald.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                        .clickable { onScanBestCoinClicked() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .testTag("btn_scan_best_coin")
+                ) {
+                    Text(
+                        text = "⚡ SCAN BEST COIN",
+                        color = CoinsEmerald,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(10.dp))
 
             // Filter Tabs (Horizontally Scrollable)

@@ -16,7 +16,8 @@ enum class StrategyType(val label: String, val description: String) {
     GRID("Grid Trading", "Places automated buy and sell limit grids around the current market price range."),
     BOLLINGER("Bollinger Mean-Rev", "Buys statistical oversold bounces off the Lower Bollinger Band (20, 2) and exits at the Middle/Upper Band."),
     TURTLE_BREAKOUT("Turtle Breakout", "Richard Dennis' Donchian Channel (20) high breakout confirmed by a >1.2x institutional volume surge."),
-    VWAP_REVERSAL("Whale VWAP + Wick", "Institutional Volume-Weighted Average Price (VWAP) discount entry with bullish hammer/pinbar wick rejection.")
+    VWAP_REVERSAL("Whale VWAP + Wick", "Institutional Volume-Weighted Average Price (VWAP) discount entry with bullish hammer/pinbar wick rejection."),
+    AI_GOD_MODE("⚡ AI God Mode", "Autonomous Quant Ensemble: detects market regime (Trending vs. Ranging vs. Dip) and combines Multi-Strategy Consensus Voting (DCA, RSI, Bollinger, VWAP, Breakout).")
 }
 
 enum class BotState(val label: String) {
@@ -87,6 +88,7 @@ data class BotSettings(
     val partialTakeProfitPercentage: Double = 1.8,
     val atrDynamicTargetsEnabled: Boolean = false,
     val orderBookWallFilterEnabled: Boolean = false,
+    val kellyDynamicSizingEnabled: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis()
 )
 
