@@ -39,7 +39,18 @@ class CoinsPhExchangeClient(
 
     fun hasCredentials(): Boolean = apiKey.isNotBlank() && secretKey.isNotBlank()
 
-    private fun currentSignedTimestamp(): Long = System.currentTimeMillis() + serverTimeOffsetMs
+    private suspend fun currentSignedTimestamp(): Long {
+        if (serverTimeOffsetMs == 0L) {
+            runCatching {
+                val response = apiService.getServerTime()
+                if (response.isSuccessful && response.body() != null) {
+                    val serverTime = response.body()!!.serverTime
+                    serverTimeOffsetMs = serverTime - System.currentTimeMillis()
+                }
+            }
+        }
+        return System.currentTimeMillis() + serverTimeOffsetMs
+    }
 
     private fun hmacSha256(data: String, secret: String): String {
         val sha256HMAC = javax.crypto.Mac.getInstance("HmacSHA256")

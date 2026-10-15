@@ -111,7 +111,8 @@ class BotDashboardViewModel(
     private fun startWatchlistPolling() {
         viewModelScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(15_000L)
+                val delayMs = if (_uiState.value.botSettings.seafarerLowDataMode) 60_000L else 15_000L
+                kotlinx.coroutines.delay(delayMs)
                 refreshMarketWatchlist()
             }
         }
@@ -482,6 +483,11 @@ class BotDashboardViewModel(
     fun onKellyDynamicSizingToggled(enabled: Boolean) {
         val current = _uiState.value.botSettings
         updateSettings(current.copy(kellyDynamicSizingEnabled = enabled))
+    }
+
+    fun onSeafarerLowDataModeToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(seafarerLowDataMode = enabled))
     }
 
     fun onResetPaperPortfolioClicked() {

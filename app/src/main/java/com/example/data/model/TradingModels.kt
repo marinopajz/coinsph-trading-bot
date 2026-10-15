@@ -89,6 +89,7 @@ data class BotSettings(
     val atrDynamicTargetsEnabled: Boolean = false,
     val orderBookWallFilterEnabled: Boolean = false,
     val kellyDynamicSizingEnabled: Boolean = false,
+    val seafarerLowDataMode: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis()
 )
 

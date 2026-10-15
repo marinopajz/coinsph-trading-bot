@@ -59,8 +59,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.BotState
 import com.example.data.model.TradingMode
+import android.net.Uri
+import android.provider.Settings
 import com.example.ui.dashboard.components.ActivityFeedList
 import com.example.ui.dashboard.components.BotActionsBar
+import com.example.ui.dashboard.components.EquityCurveCard
 import com.example.ui.dashboard.components.HeaderStatusCard
 import com.example.ui.dashboard.components.MarketWatchlistCard
 import com.example.ui.dashboard.components.OpenPositionsCard
@@ -422,6 +425,7 @@ fun DashboardScreen(
                             onAtrDynamicTargetsToggled = { viewModel.onAtrDynamicTargetsToggled(it) },
                             onOrderBookWallFilterToggled = { viewModel.onOrderBookWallFilterToggled(it) },
                             onKellyDynamicSizingToggled = { viewModel.onKellyDynamicSizingToggled(it) },
+                            onSeafarerLowDataModeToggled = { viewModel.onSeafarerLowDataModeToggled(it) },
                             onRunBacktestClicked = { viewModel.onRunBacktestClicked() },
                             onAutoOptimizeClicked = { viewModel.onAutoOptimizeClicked() }
                         )
@@ -434,6 +438,28 @@ fun DashboardScreen(
                             portfolio = uiState.portfolio,
                             quoteCurrency = uiState.botSettings.quoteCurrency
                         )
+                    }
+
+                    item {
+                        EquityCurveCard(
+                            portfolio = uiState.portfolio,
+                            tradeLogs = uiState.tradeLogs,
+                            quoteCurrency = uiState.botSettings.quoteCurrency
+                        )
+                    }
+
+                    item {
+                        Button(
+                            onClick = { requestBatteryOptimizationBypass(context) },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B2230), contentColor = CoinsEmerald),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(42.dp)
+                                .testTag("btn_battery_bypass")
+                        ) {
+                            Text("🔋 UNLOCK 24/7 CABIN BACKGROUND MODE (BATTERY BYPASS)", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = CoinsEmerald)
+                        }
                     }
 
                     if (uiState.botSettings.tradingMode == TradingMode.PAPER) {
@@ -717,6 +743,20 @@ fun DashboardScreen(
             },
             containerColor = Color(0xFF1B2230)
         )
+    }
+}
+
+private fun requestBatteryOptimizationBypass(context: android.content.Context) {
+    runCatching {
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+        context.startActivity(intent)
+    }.onFailure {
+        runCatching {
+            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            context.startActivity(intent)
+        }
     }
 }
 

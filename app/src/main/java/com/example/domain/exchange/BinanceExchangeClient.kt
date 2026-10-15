@@ -29,6 +29,21 @@ class BinanceExchangeClient : ExchangeClient {
     private var cachedSymbols: List<CoinsSymbolInfo>? = null
     private var cacheTimestamp: Long = 0L
     private val CACHE_TTL_MS = 10_000L
+    private var serverTimeOffsetMs: Long = 0L
+    private var lastTimeSyncMs: Long = 0L
+
+    private suspend fun getSyncedTimestamp(): Long {
+        if (System.currentTimeMillis() - lastTimeSyncMs > 300_000L) {
+            runCatching {
+                val res = getRequest("/api/v3/time")
+                val json = JSONObject(res)
+                val serverTime = json.getLong("serverTime")
+                serverTimeOffsetMs = serverTime - System.currentTimeMillis()
+                lastTimeSyncMs = System.currentTimeMillis()
+            }
+        }
+        return System.currentTimeMillis() + serverTimeOffsetMs
+    }
 
     private val mirrors = listOf(
         "https://api-gcp.binance.com",
@@ -89,10 +104,10 @@ class BinanceExchangeClient : ExchangeClient {
     private suspend fun signedGetRequest(path: String, queryParams: String = ""): String {
         return executeWithMirrorFailover { baseUrl ->
             withContext(Dispatchers.IO) {
-                val timestamp = System.currentTimeMillis()
-                val qString = if (queryParams.isNotEmpty()) "$queryParams&timestamp=$timestamp" else "timestamp=$timestamp"
-                val signature = signHMACSHA256(qString, secretKey)
-                val url = "$baseUrl$path?$qString&signature=$signature"
+                val timestamp = getSyncedTimestamp()
+                val qBase = if (queryParams.isNotEmpty()) "$queryParams&timestamp=$timestamp&recvWindow=60000" else "timestamp=$timestamp&recvWindow=60000"
+                val signature = signHMACSHA256(qBase, secretKey)
+                val url = "$baseUrl$path?$qBase&signature=$signature"
                 
                 val request = Request.Builder()
                     .url(url)
@@ -113,9 +128,10 @@ class BinanceExchangeClient : ExchangeClient {
     private suspend fun signedPostRequest(path: String, params: Map<String, String>): String {
         return executeWithMirrorFailover { baseUrl ->
             withContext(Dispatchers.IO) {
-                val timestamp = System.currentTimeMillis()
+                val timestamp = getSyncedTimestamp()
                 val sortedParams = params.toSortedMap()
                 sortedParams["timestamp"] = timestamp.toString()
+                sortedParams["recvWindow"] = "60000"
                 
                 val queryString = sortedParams.entries.joinToString("&") { "${it.key}=${it.value}" }
                 val signature = signHMACSHA256(queryString, secretKey)
@@ -143,9 +159,10 @@ class BinanceExchangeClient : ExchangeClient {
     private suspend fun signedDeleteRequest(path: String, params: Map<String, String>): String {
         return executeWithMirrorFailover { baseUrl ->
             withContext(Dispatchers.IO) {
-                val timestamp = System.currentTimeMillis()
+                val timestamp = getSyncedTimestamp()
                 val sortedParams = params.toSortedMap()
                 sortedParams["timestamp"] = timestamp.toString()
+                sortedParams["recvWindow"] = "60000"
                 
                 val queryString = sortedParams.entries.joinToString("&") { "${it.key}=${it.value}" }
                 val signature = signHMACSHA256(queryString, secretKey)

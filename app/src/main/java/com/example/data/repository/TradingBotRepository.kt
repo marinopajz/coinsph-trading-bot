@@ -191,7 +191,8 @@ class TradingBotRepositoryImpl(
                         partialTakeProfitPercentage = prefs.getFloat("partialTakeProfitPercentage", restoredSettings.partialTakeProfitPercentage.toFloat()).toDouble(),
                         atrDynamicTargetsEnabled = prefs.getBoolean("atrDynamicTargetsEnabled", restoredSettings.atrDynamicTargetsEnabled),
                         orderBookWallFilterEnabled = prefs.getBoolean("orderBookWallFilterEnabled", restoredSettings.orderBookWallFilterEnabled),
-                        kellyDynamicSizingEnabled = prefs.getBoolean("kellyDynamicSizingEnabled", restoredSettings.kellyDynamicSizingEnabled)
+                        kellyDynamicSizingEnabled = prefs.getBoolean("kellyDynamicSizingEnabled", restoredSettings.kellyDynamicSizingEnabled),
+                        seafarerLowDataMode = prefs.getBoolean("seafarerLowDataMode", restoredSettings.seafarerLowDataMode)
                     )
                 }
                 _botSettings.value = restoredSettings
@@ -213,7 +214,8 @@ class TradingBotRepositoryImpl(
                         partialTakeProfitPercentage = prefs.getFloat("partialTakeProfitPercentage", 1.8f).toDouble(),
                         atrDynamicTargetsEnabled = prefs.getBoolean("atrDynamicTargetsEnabled", false),
                         orderBookWallFilterEnabled = prefs.getBoolean("orderBookWallFilterEnabled", false),
-                        kellyDynamicSizingEnabled = prefs.getBoolean("kellyDynamicSizingEnabled", false)
+                        kellyDynamicSizingEnabled = prefs.getBoolean("kellyDynamicSizingEnabled", false),
+                        seafarerLowDataMode = prefs.getBoolean("seafarerLowDataMode", false)
                     )
                 }
             }
@@ -322,17 +324,21 @@ class TradingBotRepositoryImpl(
                     val orderBookRes = client.getOrderBook(symbol, 5)
                     orderBookRes.onSuccess { ob -> _orderBook.value = ob }
 
+                    val isLowData = _botSettings.value.seafarerLowDataMode
+                    val klineInterval = if (isLowData) 6 else 3
+                    val syncInterval = if (isLowData) 6 else 5
+
                     pollCount++
-                    if (pollCount % 3 == 0) {
+                    if (pollCount % klineInterval == 0) {
                         fetchKlinesForActiveSymbol()
                     }
-                    if (pollCount % 5 == 0) {
+                    if (pollCount % syncInterval == 0) {
                         syncPortfolioBalances()
                     }
                 } catch (e: Exception) {
                     println("DEBUG startTickerPolling exception: ${e.message}")
                 }
-                delay(3000) // Poll every 3 seconds for active UI updates
+                delay(if (_botSettings.value.seafarerLowDataMode) 8000L else 3000L)
             }
         }
     }
@@ -364,6 +370,7 @@ class TradingBotRepositoryImpl(
             putBoolean("atrDynamicTargetsEnabled", updated.atrDynamicTargetsEnabled)
             putBoolean("orderBookWallFilterEnabled", updated.orderBookWallFilterEnabled)
             putBoolean("kellyDynamicSizingEnabled", updated.kellyDynamicSizingEnabled)
+            putBoolean("seafarerLowDataMode", updated.seafarerLowDataMode)
             apply()
         }
 
