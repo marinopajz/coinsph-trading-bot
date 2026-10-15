@@ -65,6 +65,8 @@ import com.example.ui.dashboard.components.ActivityFeedList
 import com.example.ui.dashboard.components.BotActionsBar
 import com.example.ui.dashboard.components.EquityCurveCard
 import com.example.ui.dashboard.components.HeaderStatusCard
+import com.example.ui.dashboard.components.HelpManualDialog
+import androidx.compose.foundation.clickable
 import com.example.ui.dashboard.components.MarketWatchlistCard
 import com.example.ui.dashboard.components.OpenPositionsCard
 import com.example.ui.dashboard.components.OrderBookCard
@@ -105,6 +107,7 @@ fun DashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(DashboardTab.MARKET) }
+    var showHelpManual by remember { mutableStateOf(false) }
 
     val totalQty = uiState.openPositions.sumOf { it.quantity }
     val totalCost = uiState.openPositions.sumOf { it.amountInvested }
@@ -173,6 +176,22 @@ fun DashboardScreen(
                                 Text(
                                     text = uiState.botStatus.state.label.uppercase(),
                                     color = stateColor,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.size(6.dp))
+                            // Offline Tagalog Help Manual Pill
+                            Box(
+                                modifier = Modifier
+                                    .background(CoinsEmerald.copy(alpha = 0.18f), RoundedCornerShape(4.dp))
+                                    .clickable { showHelpManual = true }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .testTag("btn_open_help_manual")
+                            ) {
+                                Text(
+                                    text = "📘 HELP",
+                                    color = CoinsEmerald,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -522,6 +541,10 @@ fun DashboardScreen(
     }
 
     // Live Trading Security Confirmation Dialog
+    if (showHelpManual) {
+        HelpManualDialog(onDismiss = { showHelpManual = false })
+    }
+
     if (uiState.showLiveConfirmDialog) {
         AlertDialog(
             onDismissRequest = { viewModel.onDismissLiveTradingDialog() },
