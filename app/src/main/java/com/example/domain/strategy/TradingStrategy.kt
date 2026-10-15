@@ -21,6 +21,32 @@ data class TradingSignal(
     val suggestedPrice: Double? = null
 )
 
+fun calculateAtrPercent(candles: List<CandleStick>, period: Int = 14): Double {
+    if (candles.size <= period) return 2.0
+    val recent = candles.takeLast(period + 1)
+    val trList = mutableListOf<Double>()
+    for (i in 1 until recent.size) {
+        val high = recent[i].high
+        val low = recent[i].low
+        val prevClose = recent[i - 1].close
+        val tr = maxOf(high - low, kotlin.math.abs(high - prevClose), kotlin.math.abs(low - prevClose))
+        trList.add(tr)
+    }
+    val atr = trList.average()
+    val lastClose = candles.last().close
+    return if (lastClose > 0) (atr / lastClose) * 100.0 else 2.0
+}
+
+fun getEffectiveTargets(settings: BotSettings, candles: List<CandleStick>): Pair<Double, Double> {
+    if (settings.atrDynamicTargetsEnabled && candles.size >= 15) {
+        val atrPct = calculateAtrPercent(candles, 14)
+        val tp = (atrPct * 2.2).coerceIn(0.8, 12.0)
+        val sl = (atrPct * 1.5).coerceIn(0.6, 8.0)
+        return Pair(tp, sl)
+    }
+    return Pair(settings.takeProfitPercentage, settings.stopLossPercentage)
+}
+
 interface TradingStrategy {
     val type: StrategyType
 
@@ -55,6 +81,8 @@ class DcaStrategy : TradingStrategy {
             return TradingSignal(SignalAction.HOLD, "Invalid market price ($currentPrice)")
         }
 
+        val (targetTp, targetSl) = getEffectiveTargets(settings, candles)
+
         // 1. Check Take Profit, Break-Even Lock, and Stop Loss across existing open positions
         if (openPositions.isNotEmpty()) {
             val totalQty = openPositions.sumOf { it.quantity }
@@ -72,7 +100,7 @@ class DcaStrategy : TradingStrategy {
                 }
 
                 if (settings.trailingTakeProfitEnabled) {
-                    if (profitPct >= settings.takeProfitPercentage) {
+                    if (profitPct >= targetTp) {
                         val activePeak = maxOf(settings.peakPrice, currentPrice)
                         val dropFromPeakPct = if (activePeak > 0.0) ((activePeak - currentPrice) / activePeak) * 100.0 else 0.0
                         if (dropFromPeakPct >= settings.trailingStopPercentage && profitPct > 0.0) {
@@ -84,27 +112,27 @@ class DcaStrategy : TradingStrategy {
                         }
                     }
                 } else {
-                    if (profitPct >= settings.takeProfitPercentage) {
+                    if (profitPct >= targetTp) {
                         return TradingSignal(
                             action = SignalAction.SELL,
-                            reason = String.format("Take Profit triggered: +%.2f%% (Target: +%.2f%%)", profitPct, settings.takeProfitPercentage),
+                            reason = String.format("Take Profit triggered: +%.2f%% (Target: +%.2f%%)", profitPct, targetTp),
                             suggestedPrice = currentPrice
                         )
                     }
                 }
 
                 if (settings.neverSellAtLoss) {
-                    if (profitPct <= -settings.stopLossPercentage) {
+                    if (profitPct <= -targetSl) {
                         return TradingSignal(
                             action = SignalAction.HOLD,
                             reason = String.format("Spot HODL Guard active: holding through drawdown (PnL: %+.2f%%)", profitPct)
                         )
                     }
                 } else {
-                    if (profitPct <= -settings.stopLossPercentage) {
+                    if (profitPct <= -targetSl) {
                         return TradingSignal(
                             action = SignalAction.SELL,
-                            reason = String.format("Stop Loss triggered: %.2f%% (Limit: -%.2f%%)", profitPct, settings.stopLossPercentage),
+                            reason = String.format("Stop Loss triggered: %.2f%% (Limit: -%.2f%%)", profitPct, targetSl),
                             suggestedPrice = currentPrice
                         )
                     }
@@ -231,6 +259,7 @@ class RsiSwingStrategy : TradingStrategy {
             )
         }
 
+        val (targetTp, targetSl) = getEffectiveTargets(settings, candles)
         val rsi = calculateRsi(priceHistory, settings.rsiPeriod)
 
         // Exit evaluation for open positions
@@ -242,14 +271,14 @@ class RsiSwingStrategy : TradingStrategy {
                 val profitPct = ((currentPrice - avgPrice) / avgPrice) * 100.0
 
                 if (settings.neverSellAtLoss) {
-                    if (profitPct <= -settings.stopLossPercentage) {
+                    if (profitPct <= -targetSl) {
                         return TradingSignal(
                             action = SignalAction.HOLD,
                             reason = String.format("Spot HODL Guard active: holding through drawdown (PnL: %+.2f%%)", profitPct)
                         )
                     }
                 } else {
-                    if (profitPct <= -settings.stopLossPercentage) {
+                    if (profitPct <= -targetSl) {
                         return TradingSignal(
                             action = SignalAction.SELL,
                             reason = String.format("RSI Stop Loss triggered: %.2f%%", profitPct),
@@ -258,7 +287,7 @@ class RsiSwingStrategy : TradingStrategy {
                     }
                 }
 
-                if (rsi >= 70.0 || profitPct >= settings.takeProfitPercentage) {
+                if (rsi >= 70.0 || profitPct >= targetTp) {
                     if (settings.neverSellAtLoss && profitPct < 0.25) {
                         return TradingSignal(
                             action = SignalAction.HOLD,
@@ -440,6 +469,7 @@ class BollingerBandsStrategy : TradingStrategy {
             return TradingSignal(SignalAction.HOLD, "Invalid market price ($currentPrice)")
         }
 
+        val (targetTp, targetSl) = getEffectiveTargets(settings, candles)
         val prices = if (candles.size >= 20) {
             candles.map { it.close }
         } else if (priceHistory.size >= 20) {
@@ -478,7 +508,7 @@ class BollingerBandsStrategy : TradingStrategy {
                         )
                     }
                 } else {
-                    if (profitPct <= -settings.stopLossPercentage) {
+                    if (profitPct <= -targetSl) {
                         return TradingSignal(
                             action = SignalAction.SELL,
                             reason = String.format("Bollinger Stop Loss triggered: %.2f%%", profitPct),
@@ -487,7 +517,7 @@ class BollingerBandsStrategy : TradingStrategy {
                     }
                 }
 
-                if ((currentPrice >= sma20 && profitPct >= 0.40) || profitPct >= settings.takeProfitPercentage || (currentPrice >= upperBand && profitPct >= 0.25)) {
+                if ((currentPrice >= sma20 && profitPct >= 0.40) || profitPct >= targetTp || (currentPrice >= upperBand && profitPct >= 0.25)) {
                     return TradingSignal(
                         action = SignalAction.SELL,
                         reason = String.format("Bollinger Mean-Reversion exit signal (Target SMA20: %.2f, Profit: +%.2f%%)", sma20, profitPct),
@@ -550,6 +580,254 @@ class BollingerBandsStrategy : TradingStrategy {
         return TradingSignal(
             action = SignalAction.HOLD,
             reason = String.format("Bollinger neutral (Price: %.2f, Lower: %.2f, Mid: %.2f, Upper: %.2f)", currentPrice, lowerBand, sma20, upperBand)
+        )
+    }
+}
+
+/**
+ * Turtle Donchian Volume Breakout Strategy
+ * Richard Dennis' Donchian Channel (20) high breakout confirmed by a >1.15x volume surge.
+ */
+class TurtleBreakoutStrategy : TradingStrategy {
+    override val type: StrategyType = StrategyType.TURTLE_BREAKOUT
+
+    override fun evaluate(
+        settings: BotSettings,
+        currentTicker: MarketTicker,
+        priceHistory: List<PricePoint>,
+        openPositions: List<OpenPosition>,
+        allocatedCapital: Double,
+        candles: List<CandleStick>
+    ): TradingSignal {
+        val currentPrice = currentTicker.price
+        if (currentPrice <= 0.0) {
+            return TradingSignal(SignalAction.HOLD, "Invalid market price ($currentPrice)")
+        }
+
+        val (targetTp, targetSl) = getEffectiveTargets(settings, candles)
+
+        // 1. Exits
+        if (openPositions.isNotEmpty()) {
+            val totalQty = openPositions.sumOf { it.quantity }
+            val totalCost = openPositions.sumOf { it.amountInvested }
+            if (totalQty > 0.0 && totalCost > 0.0) {
+                val avgEntry = totalCost / totalQty
+                val profitPct = ((currentPrice - avgEntry) / avgEntry) * 100.0
+
+                if (settings.breakEvenLockEnabled && settings.breakEvenActivated && profitPct <= 0.30) {
+                    return TradingSignal(
+                        action = SignalAction.SELL,
+                        reason = String.format("Break-Even Lock triggered at +%.2f%%", profitPct),
+                        suggestedPrice = currentPrice
+                    )
+                }
+
+                if (profitPct >= targetTp) {
+                    return TradingSignal(
+                        action = SignalAction.SELL,
+                        reason = String.format("Turtle Breakout Take-Profit triggered: +%.2f%% (Target: +%.2f%%)", profitPct, targetTp),
+                        suggestedPrice = currentPrice
+                    )
+                }
+
+                if (settings.neverSellAtLoss) {
+                    if (profitPct <= -targetSl) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = String.format("Spot HODL Guard active: holding through drawdown (%+.2f%%)", profitPct)
+                        )
+                    }
+                } else {
+                    if (profitPct <= -targetSl) {
+                        return TradingSignal(
+                            action = SignalAction.SELL,
+                            reason = String.format("Turtle Breakout Stop-Loss triggered: %.2f%% (Limit: -%.2f%%)", profitPct, targetSl),
+                            suggestedPrice = currentPrice
+                        )
+                    }
+                }
+
+                // Trend exit: price drops below 10-candle low while in profit >= 0.35%
+                if (candles.size >= 10 && profitPct >= 0.35) {
+                    val donchian10Low = candles.dropLast(1).takeLast(10).minOf { it.low }
+                    if (currentPrice < donchian10Low) {
+                        return TradingSignal(
+                            action = SignalAction.SELL,
+                            reason = String.format("Turtle Trend Exit: price dropped below 10-candle low (%.2f) at +%.2f%% profit", donchian10Low, profitPct),
+                            suggestedPrice = currentPrice
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. Capital & Safety Guards
+        val remainingCapital = settings.maxCapital - allocatedCapital
+        if (remainingCapital < settings.orderAmount) {
+            return TradingSignal(
+                action = SignalAction.HOLD,
+                reason = "Max capital allocation reached (${allocatedCapital}/${settings.maxCapital} ${settings.quoteCurrency})"
+            )
+        }
+
+        if (settings.spreadGuardEnabled && currentTicker.bidPrice > 0.0 && currentTicker.askPrice >= currentTicker.bidPrice) {
+            val spreadPct = ((currentTicker.askPrice - currentTicker.bidPrice) / currentTicker.bidPrice) * 100.0
+            if (spreadPct > settings.maxSpreadPercentage) {
+                return TradingSignal(
+                    action = SignalAction.HOLD,
+                    reason = String.format("Spread Guard blocked BUY: spread %.2f%% > %.2f%%", spreadPct, settings.maxSpreadPercentage)
+                )
+            }
+        }
+
+        // 3. Entry Evaluation (Donchian 20 High + Volume Surge)
+        val hasCandles = candles.size >= 20
+        if (!hasCandles && priceHistory.size < 20) {
+            return TradingSignal(
+                action = SignalAction.HOLD,
+                reason = "Insufficient candles for Donchian Channel (20)"
+            )
+        }
+
+        val prior19High = if (hasCandles) {
+            candles.dropLast(1).takeLast(19).maxOf { it.high }
+        } else {
+            priceHistory.dropLast(1).takeLast(19).maxOf { it.price }
+        }
+
+        val avgVol = if (hasCandles) candles.takeLast(20).map { it.volume }.average() else 0.0
+        val lastVol = if (hasCandles && candles.isNotEmpty()) candles.last().volume else 0.0
+        val hasVolumeSurge = avgVol <= 0.0 || lastVol >= (avgVol * 1.15)
+
+        if (currentPrice >= (prior19High * 0.999) && hasVolumeSurge) {
+            return TradingSignal(
+                action = SignalAction.BUY,
+                reason = String.format("Turtle Donchian Breakout: price (%.2f) >= 20-high (%.2f) with volume surge", currentPrice, prior19High),
+                suggestedAmount = settings.orderAmount,
+                suggestedPrice = currentPrice
+            )
+        }
+
+        return TradingSignal(
+            action = SignalAction.HOLD,
+            reason = String.format("Turtle Donchian waiting for breakout (Price: %.2f, 20-High: %.2f)", currentPrice, prior19High)
+        )
+    }
+}
+
+/**
+ * Institutional VWAP + Pinbar Reversal Strategy
+ * Volume-Weighted Average Price discount entry with bullish hammer/pinbar wick rejection.
+ */
+class VwapPinbarStrategy : TradingStrategy {
+    override val type: StrategyType = StrategyType.VWAP_REVERSAL
+
+    override fun evaluate(
+        settings: BotSettings,
+        currentTicker: MarketTicker,
+        priceHistory: List<PricePoint>,
+        openPositions: List<OpenPosition>,
+        allocatedCapital: Double,
+        candles: List<CandleStick>
+    ): TradingSignal {
+        val currentPrice = currentTicker.price
+        if (currentPrice <= 0.0) {
+            return TradingSignal(SignalAction.HOLD, "Invalid market price ($currentPrice)")
+        }
+
+        val (targetTp, targetSl) = getEffectiveTargets(settings, candles)
+
+        // Calculate 20-candle Rolling Institutional VWAP
+        val hasCandles = candles.size >= 10
+        val vwap = if (hasCandles) {
+            val window = candles.takeLast(20)
+            val sumVolPrice = window.sumOf { ((it.high + it.low + it.close) / 3.0) * it.volume }
+            val sumVol = window.sumOf { it.volume }
+            if (sumVol > 0.0) sumVolPrice / sumVol else window.map { it.close }.average()
+        } else if (priceHistory.size >= 10) {
+            priceHistory.takeLast(20).map { it.price }.average()
+        } else {
+            currentPrice
+        }
+
+        // 1. Exits
+        if (openPositions.isNotEmpty()) {
+            val totalQty = openPositions.sumOf { it.quantity }
+            val totalCost = openPositions.sumOf { it.amountInvested }
+            if (totalQty > 0.0 && totalCost > 0.0) {
+                val avgEntry = totalCost / totalQty
+                val profitPct = ((currentPrice - avgEntry) / avgEntry) * 100.0
+
+                if (settings.neverSellAtLoss) {
+                    if (profitPct <= -targetSl) {
+                        return TradingSignal(
+                            action = SignalAction.HOLD,
+                            reason = String.format("Spot HODL Guard active: holding through drawdown (%+.2f%%)", profitPct)
+                        )
+                    }
+                } else {
+                    if (profitPct <= -targetSl) {
+                        return TradingSignal(
+                            action = SignalAction.SELL,
+                            reason = String.format("Whale VWAP Stop-Loss triggered: %.2f%%", profitPct),
+                            suggestedPrice = currentPrice
+                        )
+                    }
+                }
+
+                if ((currentPrice >= (vwap * 1.005) && profitPct >= 0.40) || profitPct >= targetTp) {
+                    return TradingSignal(
+                        action = SignalAction.SELL,
+                        reason = String.format("Whale VWAP Mean Reversion exit: price (%.2f) > VWAP (%.2f) at +%.2f%% profit", currentPrice, vwap, profitPct),
+                        suggestedPrice = currentPrice
+                    )
+                }
+            }
+        }
+
+        // 2. Capital & Safety Guards
+        val remainingCapital = settings.maxCapital - allocatedCapital
+        if (remainingCapital < settings.orderAmount) {
+            return TradingSignal(
+                action = SignalAction.HOLD,
+                reason = "Max capital allocation reached (${allocatedCapital}/${settings.maxCapital} ${settings.quoteCurrency})"
+            )
+        }
+
+        if (settings.spreadGuardEnabled && currentTicker.bidPrice > 0.0 && currentTicker.askPrice >= currentTicker.bidPrice) {
+            val spreadPct = ((currentTicker.askPrice - currentTicker.bidPrice) / currentTicker.bidPrice) * 100.0
+            if (spreadPct > settings.maxSpreadPercentage) {
+                return TradingSignal(
+                    action = SignalAction.HOLD,
+                    reason = String.format("Spread Guard blocked BUY: spread %.2f%% > %.2f%%", spreadPct, settings.maxSpreadPercentage)
+                )
+            }
+        }
+
+        // 3. Entry Evaluation (Price <= VWAP * 0.992 AND Bullish Pinbar Rejection)
+        val isAtVwapDiscount = currentPrice <= (vwap * 0.992)
+        val lastCandle = candles.lastOrNull()
+        val isPinbarRejection = if (lastCandle != null) {
+            val bodyMin = minOf(lastCandle.open, lastCandle.close)
+            val totalRange = (lastCandle.high - lastCandle.low).coerceAtLeast(0.0001)
+            val lowerWick = bodyMin - lastCandle.low
+            (lowerWick / totalRange >= 0.35) || (lastCandle.close > lastCandle.open)
+        } else {
+            true
+        }
+
+        if (isAtVwapDiscount && isPinbarRejection) {
+            return TradingSignal(
+                action = SignalAction.BUY,
+                reason = String.format("Whale VWAP Discount & Pinbar Reversal signal (Price: %.2f <= VWAP: %.2f)", currentPrice, vwap),
+                suggestedAmount = settings.orderAmount,
+                suggestedPrice = currentPrice
+            )
+        }
+
+        return TradingSignal(
+            action = SignalAction.HOLD,
+            reason = String.format("Whale VWAP neutral (Price: %.2f, VWAP Target: %.2f)", currentPrice, vwap)
         )
     }
 }

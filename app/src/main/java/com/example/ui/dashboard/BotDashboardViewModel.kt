@@ -469,6 +469,16 @@ class BotDashboardViewModel(
         updateSettings(current.copy(partialTakeProfitEnabled = enabled))
     }
 
+    fun onAtrDynamicTargetsToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(atrDynamicTargetsEnabled = enabled))
+    }
+
+    fun onOrderBookWallFilterToggled(enabled: Boolean) {
+        val current = _uiState.value.botSettings
+        updateSettings(current.copy(orderBookWallFilterEnabled = enabled))
+    }
+
     fun onPauseBotClicked() {
         if (_uiState.value.isOperationInProgress) return
         viewModelScope.launch {

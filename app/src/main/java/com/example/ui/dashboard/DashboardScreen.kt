@@ -418,6 +418,8 @@ fun DashboardScreen(
                             onSpreadGuardToggled = { viewModel.onSpreadGuardToggled(it) },
                             onCrashTrendFilterToggled = { viewModel.onCrashTrendFilterToggled(it) },
                             onPartialTakeProfitToggled = { viewModel.onPartialTakeProfitToggled(it) },
+                            onAtrDynamicTargetsToggled = { viewModel.onAtrDynamicTargetsToggled(it) },
+                            onOrderBookWallFilterToggled = { viewModel.onOrderBookWallFilterToggled(it) },
                             onRunBacktestClicked = { viewModel.onRunBacktestClicked() },
                             onAutoOptimizeClicked = { viewModel.onAutoOptimizeClicked() }
                         )

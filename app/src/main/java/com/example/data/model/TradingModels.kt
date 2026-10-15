@@ -14,7 +14,9 @@ enum class StrategyType(val label: String, val description: String) {
     DCA("DCA (Dollar-Cost Average)", "Accumulates asset on price pullbacks with maximum safety limits."),
     RSI_SWING("RSI Swing Trader", "Enters on oversold signals (RSI < 30) and exits on overbought signals (RSI > 70)."),
     GRID("Grid Trading", "Places automated buy and sell limit grids around the current market price range."),
-    BOLLINGER("Bollinger Mean-Rev", "Buys statistical oversold bounces off the Lower Bollinger Band (20, 2) and exits at the Middle/Upper Band.")
+    BOLLINGER("Bollinger Mean-Rev", "Buys statistical oversold bounces off the Lower Bollinger Band (20, 2) and exits at the Middle/Upper Band."),
+    TURTLE_BREAKOUT("Turtle Breakout", "Richard Dennis' Donchian Channel (20) high breakout confirmed by a >1.2x institutional volume surge."),
+    VWAP_REVERSAL("Whale VWAP + Wick", "Institutional Volume-Weighted Average Price (VWAP) discount entry with bullish hammer/pinbar wick rejection.")
 }
 
 enum class BotState(val label: String) {
@@ -83,6 +85,8 @@ data class BotSettings(
     val crashTrendFilterEnabled: Boolean = false,
     val partialTakeProfitEnabled: Boolean = false,
     val partialTakeProfitPercentage: Double = 1.8,
+    val atrDynamicTargetsEnabled: Boolean = false,
+    val orderBookWallFilterEnabled: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis()
 )
 

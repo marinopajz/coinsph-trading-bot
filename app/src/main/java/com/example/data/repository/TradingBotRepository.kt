@@ -92,6 +92,8 @@ class TradingBotRepositoryImpl(
     private val rsiStrategy = RsiSwingStrategy()
     private val gridStrategy = GridTradingStrategy()
     private val bollingerStrategy = com.example.domain.strategy.BollingerBandsStrategy()
+    private val turtleStrategy = com.example.domain.strategy.TurtleBreakoutStrategy()
+    private val vwapStrategy = com.example.domain.strategy.VwapPinbarStrategy()
 
     private val _botSettings = MutableStateFlow(BotSettings())
     override val botSettingsFlow: Flow<BotSettings> = _botSettings.asStateFlow()
@@ -183,7 +185,9 @@ class TradingBotRepositoryImpl(
                         dcaMultiplier = prefs.getFloat("dcaMultiplier", restoredSettings.dcaMultiplier.toFloat()).toDouble(),
                         exchangePlatform = com.example.data.model.ExchangePlatform.valueOf(prefs.getString("exchangePlatform", restoredSettings.exchangePlatform.name) ?: "COINS_PH"),
                         partialTakeProfitEnabled = prefs.getBoolean("partialTakeProfitEnabled", restoredSettings.partialTakeProfitEnabled),
-                        partialTakeProfitPercentage = prefs.getFloat("partialTakeProfitPercentage", restoredSettings.partialTakeProfitPercentage.toFloat()).toDouble()
+                        partialTakeProfitPercentage = prefs.getFloat("partialTakeProfitPercentage", restoredSettings.partialTakeProfitPercentage.toFloat()).toDouble(),
+                        atrDynamicTargetsEnabled = prefs.getBoolean("atrDynamicTargetsEnabled", restoredSettings.atrDynamicTargetsEnabled),
+                        orderBookWallFilterEnabled = prefs.getBoolean("orderBookWallFilterEnabled", restoredSettings.orderBookWallFilterEnabled)
                     )
                 }
                 _botSettings.value = restoredSettings
@@ -202,7 +206,9 @@ class TradingBotRepositoryImpl(
                         dcaMultiplier = prefs.getFloat("dcaMultiplier", 1.0f).toDouble(),
                         exchangePlatform = com.example.data.model.ExchangePlatform.valueOf(prefs.getString("exchangePlatform", "COINS_PH") ?: "COINS_PH"),
                         partialTakeProfitEnabled = prefs.getBoolean("partialTakeProfitEnabled", false),
-                        partialTakeProfitPercentage = prefs.getFloat("partialTakeProfitPercentage", 1.8f).toDouble()
+                        partialTakeProfitPercentage = prefs.getFloat("partialTakeProfitPercentage", 1.8f).toDouble(),
+                        atrDynamicTargetsEnabled = prefs.getBoolean("atrDynamicTargetsEnabled", false),
+                        orderBookWallFilterEnabled = prefs.getBoolean("orderBookWallFilterEnabled", false)
                     )
                 }
             }
@@ -336,8 +342,26 @@ class TradingBotRepositoryImpl(
         )
         tradingDao?.saveBotSettings(BotSettingsEntity.fromDomain(updated))
 
+        sharedPreferences?.edit()?.apply {
+            putBoolean("trailingTakeProfitEnabled", updated.trailingTakeProfitEnabled)
+            putFloat("trailingStopPercentage", updated.trailingStopPercentage.toFloat())
+            putBoolean("smartEntryEnabled", updated.smartEntryEnabled)
+            putBoolean("breakEvenLockEnabled", updated.breakEvenLockEnabled)
+            putBoolean("greenCandleConfirmation", updated.greenCandleConfirmation)
+            putFloat("dcaMultiplier", updated.dcaMultiplier.toFloat())
+            putBoolean("neverSellAtLoss", updated.neverSellAtLoss)
+            putBoolean("spreadGuardEnabled", updated.spreadGuardEnabled)
+            putFloat("maxSpreadPercentage", updated.maxSpreadPercentage.toFloat())
+            putBoolean("crashTrendFilterEnabled", updated.crashTrendFilterEnabled)
+            putString("exchangePlatform", updated.exchangePlatform.name)
+            putBoolean("partialTakeProfitEnabled", updated.partialTakeProfitEnabled)
+            putFloat("partialTakeProfitPercentage", updated.partialTakeProfitPercentage.toFloat())
+            putBoolean("atrDynamicTargetsEnabled", updated.atrDynamicTargetsEnabled)
+            putBoolean("orderBookWallFilterEnabled", updated.orderBookWallFilterEnabled)
+            apply()
+        }
+
         if (previousSymbol != settings.symbol) {
-            _priceHistory.value = emptyList()
             _marketTicker.value = null
             startTickerPolling(settings.symbol)
         }
@@ -636,6 +660,8 @@ class TradingBotRepositoryImpl(
             StrategyType.RSI_SWING -> rsiStrategy
             StrategyType.GRID -> gridStrategy
             StrategyType.BOLLINGER -> bollingerStrategy
+            StrategyType.TURTLE_BREAKOUT -> turtleStrategy
+            StrategyType.VWAP_REVERSAL -> vwapStrategy
         }
 
         val signal = strategy.evaluate(
@@ -646,6 +672,30 @@ class TradingBotRepositoryImpl(
             allocatedCapital = portfolio.allocatedCapital,
             candles = _candles.value
         )
+
+        // Order Book Wall Filter Guard before BUY
+        if (signal.action == SignalAction.BUY && settings.orderBookWallFilterEnabled) {
+            val buyPressure = _orderBook.value.buyPressurePercent
+            if (buyPressure < 45.0) {
+                addTradeLog(
+                    TradeLog(
+                        id = "ob_guard_${System.currentTimeMillis()}",
+                        type = "ORDERBOOK_GUARD",
+                        symbol = settings.symbol,
+                        side = "BLOCKED",
+                        price = ticker.price,
+                        quantity = 0.0,
+                        amount = 0.0,
+                        fee = 0.0,
+                        feeCurrency = settings.quoteCurrency,
+                        status = "REJECTED",
+                        message = String.format(Locale.US, "Order Book Whale Filter: Buy wall weak (%.1f%% < 45%%), waiting for bid support", buyPressure),
+                        tradingMode = settings.tradingMode
+                    )
+                )
+                return
+            }
+        }
 
         // Risk Manager validation
         val riskCheck = riskManager.validateOrder(
@@ -1056,6 +1106,18 @@ class TradingBotRepositoryImpl(
                 takeProfitPercentage = 2.5,
                 neverSellAtLoss = true,
                 greenCandleConfirmation = true
+            ),
+            currentSettings.copy(
+                strategyType = StrategyType.TURTLE_BREAKOUT,
+                takeProfitPercentage = 3.5,
+                stopLossPercentage = 2.5,
+                atrDynamicTargetsEnabled = true
+            ),
+            currentSettings.copy(
+                strategyType = StrategyType.VWAP_REVERSAL,
+                takeProfitPercentage = 2.0,
+                neverSellAtLoss = true,
+                atrDynamicTargetsEnabled = true
             )
         )
 
@@ -1088,6 +1150,8 @@ class TradingBotRepositoryImpl(
             StrategyType.RSI_SWING -> rsiStrategy
             StrategyType.GRID -> gridStrategy
             StrategyType.BOLLINGER -> bollingerStrategy
+            StrategyType.TURTLE_BREAKOUT -> turtleStrategy
+            StrategyType.VWAP_REVERSAL -> vwapStrategy
         }
 
         val simulatedPositions = mutableListOf<OpenPosition>()

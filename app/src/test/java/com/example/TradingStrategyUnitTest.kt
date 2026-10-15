@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.data.model.BotSettings
+import com.example.data.model.CandleStick
 import com.example.data.model.MarketTicker
 import com.example.data.model.OpenPosition
 import com.example.data.model.PricePoint
@@ -477,5 +478,63 @@ class TradingStrategyUnitTest {
 
         assertEquals(SignalAction.HOLD, signal.action)
         assertTrue(signal.reason.contains("Spread Guard blocked BUY"))
+    }
+
+    @Test
+    fun turtleBreakoutStrategy_triggersBuyOn20PeriodHighBreakoutWithVolume() {
+        val strategy = com.example.domain.strategy.TurtleBreakoutStrategy()
+        val candles = (0..20).map { i ->
+            CandleStick(
+                openTime = 1700000000000L + i * 300000L,
+                open = 5000000.0,
+                high = 5100000.0,
+                low = 4950000.0,
+                close = 5000000.0,
+                volume = if (i == 20) 20.0 else 10.0,
+                closeTime = 1700000300000L + i * 300000L
+            )
+        }
+
+        val breakoutTicker = defaultTicker.copy(price = 5200000.0)
+        val signal = strategy.evaluate(
+            settings = defaultSettings.copy(strategyType = StrategyType.TURTLE_BREAKOUT),
+            currentTicker = breakoutTicker,
+            priceHistory = emptyList(),
+            openPositions = emptyList(),
+            allocatedCapital = 0.0,
+            candles = candles
+        )
+
+        assertEquals(SignalAction.BUY, signal.action)
+        assertTrue(signal.reason.contains("Turtle Donchian Breakout"))
+    }
+
+    @Test
+    fun vwapPinbarStrategy_triggersBuyOnBelowVwapHammerRejection() {
+        val strategy = com.example.domain.strategy.VwapPinbarStrategy()
+        val candles = (0..20).map { i ->
+            CandleStick(
+                openTime = 1700000000000L + i * 300000L,
+                open = 5000000.0,
+                high = 5050000.0,
+                low = 4800000.0,
+                close = 4980000.0,
+                volume = 20.0,
+                closeTime = 1700000300000L + i * 300000L
+            )
+        }
+
+        val discountedTicker = defaultTicker.copy(price = 4850000.0)
+        val signal = strategy.evaluate(
+            settings = defaultSettings.copy(strategyType = StrategyType.VWAP_REVERSAL),
+            currentTicker = discountedTicker,
+            priceHistory = emptyList(),
+            openPositions = emptyList(),
+            allocatedCapital = 0.0,
+            candles = candles
+        )
+
+        assertEquals(SignalAction.BUY, signal.action)
+        assertTrue(signal.reason.contains("Whale VWAP Discount"))
     }
 }

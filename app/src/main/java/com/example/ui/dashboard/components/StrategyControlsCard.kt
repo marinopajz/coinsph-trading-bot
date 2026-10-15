@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Tab
@@ -74,11 +75,13 @@ fun StrategyControlsCard(
     onSpreadGuardToggled: (Boolean) -> Unit = {},
     onCrashTrendFilterToggled: (Boolean) -> Unit = {},
     onPartialTakeProfitToggled: (Boolean) -> Unit = {},
+    onAtrDynamicTargetsToggled: (Boolean) -> Unit = {},
+    onOrderBookWallFilterToggled: (Boolean) -> Unit = {},
     onRunBacktestClicked: () -> Unit = {},
     onAutoOptimizeClicked: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val strategies = listOf(StrategyType.DCA, StrategyType.RSI_SWING, StrategyType.GRID, StrategyType.BOLLINGER)
+    val strategies = listOf(StrategyType.DCA, StrategyType.RSI_SWING, StrategyType.GRID, StrategyType.BOLLINGER, StrategyType.TURTLE_BREAKOUT, StrategyType.VWAP_REVERSAL)
     val selectedIndex = strategies.indexOf(settings.strategyType).coerceAtLeast(0)
 
     var orderAmountText by remember(settings.symbol, settings.strategyType) { mutableStateOf(settings.orderAmount.toString()) }
@@ -112,11 +115,12 @@ fun StrategyControlsCard(
             )
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Strategy Tabs
-            TabRow(
+            // Strategy Tabs (Scrollable)
+            ScrollableTabRow(
                 selectedTabIndex = selectedIndex,
                 containerColor = Color(0xFF1B2230),
                 contentColor = CoinsEmerald,
+                edgePadding = 0.dp,
                 indicator = { tabPositions ->
                     TabRowDefaults.SecondaryIndicator(
                         Modifier.tabIndicatorOffset(tabPositions[selectedIndex]),
@@ -138,6 +142,8 @@ fun StrategyControlsCard(
                                     StrategyType.RSI_SWING -> "RSI"
                                     StrategyType.GRID -> "GRID"
                                     StrategyType.BOLLINGER -> "BOLL"
+                                    StrategyType.TURTLE_BREAKOUT -> "BREAKOUT"
+                                    StrategyType.VWAP_REVERSAL -> "VWAP"
                                 },
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = if (selectedIndex == index) FontWeight.Bold else FontWeight.Normal
@@ -259,7 +265,7 @@ fun StrategyControlsCard(
                                 .testTag("input_grid_levels")
                         )
                     }
-                    StrategyType.BOLLINGER -> {
+                    StrategyType.BOLLINGER, StrategyType.TURTLE_BREAKOUT, StrategyType.VWAP_REVERSAL -> {
                         OutlinedTextField(
                             value = takeProfitText,
                             onValueChange = {
@@ -450,6 +456,36 @@ fun StrategyControlsCard(
                             onCheckedChange = { onPartialTakeProfitToggled(it) },
                             colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
                             modifier = Modifier.scale(0.8f).testTag("switch_partial_tp")
+                        )
+                    }
+
+                    // Toggle 8: ATR Dynamic Targets
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("ATR Dynamic Targets (Chandelier TP/SL)", color = TextPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = settings.atrDynamicTargetsEnabled,
+                            onCheckedChange = { onAtrDynamicTargetsToggled(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
+                            modifier = Modifier.scale(0.8f).testTag("switch_atr_targets")
+                        )
+                    }
+
+                    // Toggle 9: Order Book Whale Wall Filter
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Order Book Whale Wall Filter (Bids >= 45%)", color = TextPrimary, fontSize = 11.sp)
+                        Switch(
+                            checked = settings.orderBookWallFilterEnabled,
+                            onCheckedChange = { onOrderBookWallFilterToggled(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CoinsEmerald),
+                            modifier = Modifier.scale(0.8f).testTag("switch_orderbook_wall")
                         )
                     }
 
