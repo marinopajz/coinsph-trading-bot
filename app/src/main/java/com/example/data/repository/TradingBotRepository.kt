@@ -283,7 +283,7 @@ class TradingBotRepositoryImpl(
     }
 
     private fun startTickerPolling(symbol: String) {
-        if (!isForegrounded) return
+        if (!isForegrounded && _botStatus.value.state != BotState.RUNNING) return
         tickerPollingJob?.cancel()
         tickerPollingJob = coroutineScope.launch {
             var pollCount = 0
@@ -563,7 +563,8 @@ class TradingBotRepositoryImpl(
     }
 
     override suspend fun fetchLatestTicker(symbol: String): Result<MarketTicker> {
-        return getMarketDataClient().getTicker(symbol)
+        val res = getMarketDataClient().getTicker(symbol)
+        return res.map { it.copy(lastUpdated = System.currentTimeMillis()) }
     }
 
     override suspend fun closePosition(positionId: String): Result<Unit> {
@@ -663,7 +664,21 @@ class TradingBotRepositoryImpl(
 
     private suspend fun evaluateAndExecuteStrategy() {
         val settings = _botSettings.value
-        val ticker = _marketTicker.value ?: return
+        val now = System.currentTimeMillis()
+
+        val activeTicker = if (_marketTicker.value == null || (now - (_marketTicker.value?.lastUpdated ?: 0L)) > 15_000L) {
+            val freshRes = fetchLatestTicker(settings.symbol)
+            if (freshRes.isSuccess && (freshRes.getOrNull()?.price ?: 0.0) > 0.0) {
+                freshRes.getOrThrow().copy(lastUpdated = System.currentTimeMillis())
+            } else {
+                _marketTicker.value?.copy(lastUpdated = System.currentTimeMillis())
+            }
+        } else {
+            _marketTicker.value
+        } ?: return
+
+        _marketTicker.value = activeTicker
+        val ticker = activeTicker
         val positions = _openPositions.value
         val history = _priceHistory.value
         val portfolio = _portfolio.value

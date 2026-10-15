@@ -27,11 +27,12 @@ class RiskManager {
             return RiskCheckResult.Approved
         }
 
-        // 1. Stale-Price Rejection: Tickers older than 60 seconds are rejected
+        // 1. Stale-Price Rejection: Tickers older than 300 seconds (or 600s in Seafarer Mode) are rejected
         val now = System.currentTimeMillis()
-        if (now - ticker.lastUpdated > 60_000) {
+        val maxAllowedAgeMs = if (settings.seafarerLowDataMode) 600_000L else 300_000L
+        if (now - ticker.lastUpdated > maxAllowedAgeMs) {
             return RiskCheckResult.Rejected(
-                "Stale price rejected: Market data is ${(now - ticker.lastUpdated) / 1000}s old (Max allowed: 60s)"
+                "Stale price rejected: Market data is ${(now - ticker.lastUpdated) / 1000}s old (Max allowed: ${maxAllowedAgeMs / 1000}s)"
             )
         }
 

@@ -211,7 +211,7 @@ class TradingStrategyUnitTest {
     @Test
     fun riskManager_stalePrice_rejectsOrder() {
         val riskManager = RiskManager()
-        val staleTicker = defaultTicker.copy(lastUpdated = System.currentTimeMillis() - 70_000) // 70s old
+        val staleTicker = defaultTicker.copy(lastUpdated = System.currentTimeMillis() - 350_000) // 350s old
         val signal = TradingSignal(SignalAction.BUY, "Test Buy", 1000.0, 5000000.0)
 
         val result = riskManager.validateOrder(
