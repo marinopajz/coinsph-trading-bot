@@ -221,9 +221,9 @@ private fun TradeLogItem(log: TradeLog) {
 
                     Text(
                         text = timeString,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextMuted,
-                        fontSize = 9.sp
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        color = TextSecondary,
+                        fontSize = 10.sp
                     )
                 }
 
@@ -255,5 +255,7 @@ private fun TradeLogItem(log: TradeLog) {
 
 @Composable
 private fun rememberFormattedTime(timestamp: Long): String {
-    return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
+    return remember(timestamp) {
+        SimpleDateFormat("MMM dd, HH:mm:ss", Locale.US).format(Date(timestamp))
+    }
 }
