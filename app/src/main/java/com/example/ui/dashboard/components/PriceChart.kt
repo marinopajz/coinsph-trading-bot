@@ -518,39 +518,51 @@ fun PriceChart(
 
                         // Overlay Lines: Entry, TP, SL
                         if (averageEntryPrice != null && averageEntryPrice > 0.0) {
-                            val dashEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
+                            val dashEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
+                            val tagPaint = android.graphics.Paint().apply {
+                                isAntiAlias = true
+                                textSize = 8.sp.toPx()
+                                textAlign = android.graphics.Paint.Align.LEFT
+                                typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                            }
 
                             if (averageEntryPrice in displayMinPrice..displayMaxPrice) {
                                 val entryY = mapPriceToY(averageEntryPrice)
                                 drawLine(
-                                    color = Color(0xFF29B6F6),
+                                    color = Color(0xFF00E5FF).copy(alpha = 0.75f),
                                     start = Offset(0f, entryY),
                                     end = Offset(plotWidth, entryY),
-                                    strokeWidth = 1.5.dp.toPx(),
+                                    strokeWidth = 1.dp.toPx(),
                                     pathEffect = dashEffect
                                 )
+                                tagPaint.color = 0xFF00E5FF.toInt()
+                                drawContext.canvas.nativeCanvas.drawText("ENTRY", 4.dp.toPx(), entryY - 2.dp.toPx(), tagPaint)
                             }
 
                             if (takeProfitPrice != null && takeProfitPrice in displayMinPrice..displayMaxPrice) {
                                 val tpY = mapPriceToY(takeProfitPrice)
                                 drawLine(
-                                    color = CoinsEmerald,
+                                    color = CoinsEmerald.copy(alpha = 0.75f),
                                     start = Offset(0f, tpY),
                                     end = Offset(plotWidth, tpY),
-                                    strokeWidth = 1.5.dp.toPx(),
+                                    strokeWidth = 1.dp.toPx(),
                                     pathEffect = dashEffect
                                 )
+                                tagPaint.color = 0xFF00E676.toInt()
+                                drawContext.canvas.nativeCanvas.drawText("TP", 4.dp.toPx(), tpY - 2.dp.toPx(), tagPaint)
                             }
 
                             if (stopLossPrice != null && stopLossPrice in displayMinPrice..displayMaxPrice) {
                                 val slY = mapPriceToY(stopLossPrice)
                                 drawLine(
-                                    color = LossRed,
+                                    color = LossRed.copy(alpha = 0.75f),
                                     start = Offset(0f, slY),
                                     end = Offset(plotWidth, slY),
-                                    strokeWidth = 1.5.dp.toPx(),
+                                    strokeWidth = 1.dp.toPx(),
                                     pathEffect = dashEffect
                                 )
+                                tagPaint.color = 0xFFFF5252.toInt()
+                                drawContext.canvas.nativeCanvas.drawText("SL", 4.dp.toPx(), slY - 2.dp.toPx(), tagPaint)
                             }
                         }
 

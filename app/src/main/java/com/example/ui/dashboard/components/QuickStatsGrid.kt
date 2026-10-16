@@ -80,25 +80,99 @@ fun QuickStatsGrid(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Row 2: PnL & Win Rate
+            // Row 2: PnL & Win Rate (Matched Height & Symmetrical Subtitles)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 val totalPnl = portfolio.totalRealizedPnl + portfolio.unrealizedPnl
                 val pnlColor = if (totalPnl >= 0) CoinsEmerald else LossRed
-                StatCard(
-                    title = "Net PnL",
-                    value = String.format(Locale.US, "%+,.2f", totalPnl),
-                    accentColor = pnlColor,
-                    modifier = Modifier.weight(1f)
-                )
-                StatCard(
-                    title = "Win Rate / Trades",
-                    value = String.format(Locale.US, "%.1f%% (%d)", portfolio.winRate, portfolio.totalTrades),
-                    accentColor = if (portfolio.winRate >= 50.0) CoinsEmerald else TextSecondary,
-                    modifier = Modifier.weight(1f)
-                )
+                val realizedPnl = portfolio.totalRealizedPnl
+                val unrealizedPnl = portfolio.unrealizedPnl
+
+                // Net PnL Card
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(Color(0xFF1B2230), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "Net PnL ($quoteCurrency)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextMuted,
+                            fontSize = 10.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = String.format(Locale.US, "%+,.2f", totalPnl),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            color = pnlColor,
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = String.format(Locale.US, "Closed: %+,.2f", realizedPnl),
+                            fontSize = 8.5.sp,
+                            color = if (realizedPnl >= 0) CoinsEmerald.copy(alpha = 0.85f) else TextSecondary,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = String.format(Locale.US, "HODL:   %+,.2f", unrealizedPnl),
+                            fontSize = 8.5.sp,
+                            color = TextSecondary,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                // Win Rate / Trades Card
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(Color(0xFF1B2230), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "Win Rate / Trades",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextMuted,
+                            fontSize = 10.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = String.format(Locale.US, "%.1f%%", portfolio.winRate),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            color = if (portfolio.winRate >= 50.0) CoinsEmerald else TextSecondary,
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = String.format(Locale.US, "Trades: %d closed", portfolio.totalTrades),
+                            fontSize = 8.5.sp,
+                            color = TextSecondary,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = "Target: >= 50.0%",
+                            fontSize = 8.5.sp,
+                            color = TextMuted,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
         }
     }

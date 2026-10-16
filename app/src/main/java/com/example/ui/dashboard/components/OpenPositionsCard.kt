@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -39,6 +42,7 @@ fun OpenPositionsCard(
     positions: List<OpenPosition>,
     quoteCurrency: String,
     onClosePosition: (String) -> Unit,
+    takeProfitPercentage: Double = 5.0,
     modifier: Modifier = Modifier
 ) {
     if (positions.isEmpty()) return
@@ -69,59 +73,132 @@ fun OpenPositionsCard(
             }
             Spacer(modifier = Modifier.height(10.dp))
 
-            positions.forEach { pos ->
-                val pnlColor = if (pos.unrealizedPnl >= 0) CoinsEmerald else LossRed
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .background(Color(0xFF1B2230), RoundedCornerShape(10.dp))
-                        .padding(12.dp)
-                        .testTag("position_item_${pos.id.take(6)}")
-                ) {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "${pos.symbol} • ${String.format(Locale.US, "%.6f", pos.quantity)}",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = String.format(Locale.US, "%+.2f%% (%+,.2f %s)", pos.pnlPercentage, pos.unrealizedPnl, quoteCurrency),
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                ),
-                                color = pnlColor
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = String.format(Locale.US, "Entry: %,.2f | Now: %,.2f", pos.entryPrice, pos.currentPrice),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
-                                fontSize = 11.sp
-                            )
-
-                            OutlinedButton(
-                                onClick = { onClosePosition(pos.id) },
-                                shape = RoundedCornerShape(6.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = LossRed),
-                                modifier = Modifier
-                                    .testTag("btn_close_pos_${pos.id.take(6)}")
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                positions.forEach { pos ->
+                    val isProfit = pos.unrealizedPnl >= 0
+                    val pnlColor = if (isProfit) CoinsEmerald else LossRed
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF1B2230), RoundedCornerShape(10.dp))
+                            .padding(12.dp)
+                            .testTag("position_item_${pos.id.take(6)}")
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Top Row: Symbol/Qty and PnL Badge
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Close", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "${pos.symbol} · ${String.format(Locale.US, "%.6f", pos.quantity)}",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .background(pnlColor.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = String.format(Locale.US, "%+.2f%% (%+,.2f %s)", pos.pnlPercentage, pos.unrealizedPnl, quoteCurrency),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = pnlColor,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+
+                            // Middle Row: Entry / Now Prices and Close Button
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = String.format(Locale.US, "Entry: %,.2f", pos.entryPrice),
+                                        fontSize = 11.sp,
+                                        color = TextSecondary,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = String.format(Locale.US, "Now: %,.2f", pos.currentPrice),
+                                        fontSize = 11.sp,
+                                        color = TextPrimary,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = { onClosePosition(pos.id) },
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = LossRed),
+                                    modifier = Modifier
+                                        .height(32.dp)
+                                        .testTag("btn_close_pos_${pos.id.take(6)}")
+                                ) {
+                                    Text("Close", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            // Distance-to-Take-Profit Progress Bar
+                            val targetTpPrice = pos.entryPrice * (1.0 + (takeProfitPercentage / 100.0))
+                            val remainingPct = (((targetTpPrice - pos.currentPrice) / pos.currentPrice) * 100.0).coerceAtLeast(0.0)
+                            val baseMin = pos.entryPrice * 0.985
+                            val progress = if (targetTpPrice > baseMin) {
+                                ((pos.currentPrice - baseMin) / (targetTpPrice - baseMin)).toFloat().coerceIn(0.05f, 1.0f)
+                            } else 0.05f
+
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = String.format(Locale.US, "Target TP: %,.2f", targetTpPrice),
+                                        fontSize = 10.sp,
+                                        color = CoinsEmerald,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = String.format(Locale.US, "Need +%.2f%% to TP", remainingPct),
+                                        fontSize = 10.sp,
+                                        color = TextMuted,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(Color.White.copy(alpha = 0.08f))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(progress)
+                                            .fillMaxHeight()
+                                            .background(if (pos.currentPrice >= pos.entryPrice) CoinsEmerald else Color(0xFF00E5FF))
+                                    )
+                                }
                             }
                         }
                     }

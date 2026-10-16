@@ -531,6 +531,7 @@ fun DashboardScreen(
                         OpenPositionsCard(
                             positions = uiState.openPositions,
                             quoteCurrency = uiState.botSettings.quoteCurrency,
+                            takeProfitPercentage = uiState.botSettings.takeProfitPercentage,
                             onClosePosition = { viewModel.onClosePosition(it) }
                         )
                     }
