@@ -739,12 +739,23 @@ class CoinsPhExchangeClient(
                 val signature = hmacSha256(queryString, secretKey)
                 val response = apiService.getAccountInfo(apiKey, timestamp, signature)
                 if (response.isSuccessful && response.body() != null) {
-                    val balances = response.body()!!.balances ?: emptyList()
+                    val accountInfo = response.body()!!
+                    val balances = accountInfo.balances
+                    println("[CoinsPhExchangeClient] getBalances SUCCESS: HTTP ${response.code()}, count=${balances.size}")
+                    balances.forEach { b ->
+                        if ((b.free.toDoubleOrNull() ?: 0.0) > 0.0 || (b.locked.toDoubleOrNull() ?: 0.0) > 0.0) {
+                            println("  -> Asset: ${b.asset}, Free: ${b.free}, Locked: ${b.locked}")
+                        }
+                    }
                     Result.success(balances)
                 } else {
-                    Result.failure(Exception("Failed to fetch Coins.ph account info: HTTP ${response.code()} ${response.message()}"))
+                    val errBody = response.errorBody()?.string()
+                    println("[CoinsPhExchangeClient] getBalances HTTP ERROR ${response.code()}: $errBody")
+                    Result.failure(Exception("Failed to fetch Coins.ph account info: HTTP ${response.code()} $errBody"))
                 }
             } catch (e: Exception) {
+                println("[CoinsPhExchangeClient] getBalances EXCEPTION: ${e.javaClass.simpleName} - ${e.message}")
+                e.printStackTrace()
                 Result.failure(e)
             }
         }

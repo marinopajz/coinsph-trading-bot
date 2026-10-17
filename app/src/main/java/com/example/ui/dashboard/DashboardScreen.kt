@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +25,8 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -74,6 +77,7 @@ import com.example.ui.dashboard.components.PriceChart
 import com.example.ui.dashboard.components.QuickStatsGrid
 import com.example.ui.dashboard.components.StrategyControlsCard
 import com.example.ui.theme.CoinsEmerald
+import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.CryptoBackground
 import com.example.ui.theme.LiveBadgeBg
 import com.example.ui.theme.LiveBadgeText
@@ -344,6 +348,37 @@ fun DashboardScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            if (uiState.ipWarningMessage != null) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ip_warning_card"),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF332200)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = uiState.ipWarningMessage!!,
+                                color = WarningAmber,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextButton(onClick = { viewModel.clearIpWarning() }) {
+                                Text("DISMISS", color = ElectricCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
             when (selectedTab) {
                 DashboardTab.MARKET -> {
                     item {

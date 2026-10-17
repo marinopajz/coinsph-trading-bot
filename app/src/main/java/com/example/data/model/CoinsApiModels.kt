@@ -68,15 +68,62 @@ data class CoinsOrderResponse(
 
 @JsonClass(generateAdapter = true)
 data class CoinsAccountInfo(
-    @Json(name = "canTrade") val canTrade: Boolean?,
-    @Json(name = "canWithdraw") val canWithdraw: Boolean?,
-    @Json(name = "canDeposit") val canDeposit: Boolean?,
-    @Json(name = "balances") val balances: List<CoinsBalance>?
-)
+    @Json(name = "canTrade") val canTrade: Boolean? = true,
+    @Json(name = "canWithdraw") val canWithdraw: Boolean? = true,
+    @Json(name = "canDeposit") val canDeposit: Boolean? = true,
+    @Json(name = "balances") val rawBalances: List<CoinsBalance>? = null,
+    @Json(name = "assets") val rawAssets: List<CoinsBalance>? = null,
+    @Json(name = "data") val rawData: List<CoinsBalance>? = null
+) {
+    constructor(
+        canTrade: Boolean?,
+        canWithdraw: Boolean?,
+        canDeposit: Boolean?,
+        balances: List<CoinsBalance>?
+    ) : this(
+        canTrade = canTrade,
+        canWithdraw = canWithdraw,
+        canDeposit = canDeposit,
+        rawBalances = balances
+    )
+
+    val balances: List<CoinsBalance>
+        get() = rawBalances ?: rawAssets ?: rawData ?: emptyList()
+}
 
 @JsonClass(generateAdapter = true)
 data class CoinsBalance(
-    @Json(name = "asset") val asset: String,
-    @Json(name = "free") val free: String,
-    @Json(name = "locked") val locked: String
-)
+    @Json(name = "asset") val rawAsset: String? = null,
+    @Json(name = "coin") val rawCoin: String? = null,
+    @Json(name = "currency") val rawCurrency: String? = null,
+    @Json(name = "symbol") val rawSymbol: String? = null,
+
+    @Json(name = "free") val rawFree: Any? = null,
+    @Json(name = "available") val rawAvailable: Any? = null,
+    @Json(name = "balance") val rawBalance: Any? = null,
+
+    @Json(name = "locked") val rawLocked: Any? = null,
+    @Json(name = "frozen") val rawFrozen: Any? = null,
+    @Json(name = "reserved") val rawReserved: Any? = null
+) {
+    constructor(asset: String, free: String, locked: String) : this(
+        rawAsset = asset,
+        rawFree = free,
+        rawLocked = locked
+    )
+
+    val asset: String
+        get() = rawAsset ?: rawCoin ?: rawCurrency ?: rawSymbol ?: ""
+
+    val free: String
+        get() {
+            val v = rawFree ?: rawAvailable ?: rawBalance ?: "0.0"
+            return v.toString()
+        }
+
+    val locked: String
+        get() {
+            val v = rawLocked ?: rawFrozen ?: rawReserved ?: "0.0"
+            return v.toString()
+        }
+}

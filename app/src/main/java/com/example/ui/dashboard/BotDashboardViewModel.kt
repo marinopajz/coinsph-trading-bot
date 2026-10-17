@@ -55,6 +55,7 @@ data class DashboardUiState(
     val hasLiveCredentials: Boolean = false,
     val lastBacktestResult: com.example.data.model.BacktestResult? = null,
     val errorMessage: String? = null,
+    val ipWarningMessage: String? = null,
     val snackbarMessage: String? = null
 )
 
@@ -228,6 +229,16 @@ class BotDashboardViewModel(
                 _uiState.update { it.copy(chartInterval = interval) }
             }
         }
+        viewModelScope.launch {
+            val ipWarning = repository.checkAndDetectIpChange()
+            if (ipWarning != null) {
+                _uiState.update { it.copy(ipWarningMessage = ipWarning, snackbarMessage = ipWarning) }
+            }
+        }
+    }
+
+    fun clearIpWarning() {
+        _uiState.update { it.copy(ipWarningMessage = null) }
     }
 
     fun onSymbolSelected(symbol: String) {
@@ -447,10 +458,12 @@ class BotDashboardViewModel(
             val res = repository.startBot()
             res.onSuccess {
                 context?.let { ctx -> com.example.service.BotForegroundService.startService(ctx) }
+                val ipWarning = repository.checkAndDetectIpChange()
                 _uiState.update {
                     it.copy(
                         isOperationInProgress = false,
-                        snackbarMessage = "Trading bot started in ${_uiState.value.botSettings.tradingMode.displayName} mode"
+                        ipWarningMessage = ipWarning ?: it.ipWarningMessage,
+                        snackbarMessage = ipWarning ?: "Trading bot started in ${_uiState.value.botSettings.tradingMode.displayName} mode"
                     )
                 }
             }.onFailure { err ->
@@ -630,11 +643,13 @@ class BotDashboardViewModel(
             _uiState.update { it.copy(hasLiveCredentials = repository.hasLiveCredentials()) }
             val res = repository.setTradingMode(TradingMode.LIVE)
             res.onSuccess {
+                val ipWarning = repository.checkAndDetectIpChange()
                 _uiState.update {
                     it.copy(
                         isOperationInProgress = false,
                         showLiveConfirmDialog = false,
-                        snackbarMessage = "Coins.ph API credentials saved & Live Trading Mode enabled."
+                        ipWarningMessage = ipWarning ?: it.ipWarningMessage,
+                        snackbarMessage = ipWarning ?: "Coins.ph API credentials saved & Live Trading Mode enabled."
                     )
                 }
             }.onFailure { err ->
@@ -657,11 +672,13 @@ class BotDashboardViewModel(
             _uiState.update { it.copy(showLiveConfirmDialog = false, isOperationInProgress = true) }
             val res = repository.setTradingMode(TradingMode.LIVE)
             res.onSuccess {
+                val ipWarning = repository.checkAndDetectIpChange()
                 _uiState.update {
                     it.copy(
                         isOperationInProgress = false,
                         hasLiveCredentials = repository.hasLiveCredentials(),
-                        snackbarMessage = "Live Trading Mode enabled. Real funds are now active."
+                        ipWarningMessage = ipWarning ?: it.ipWarningMessage,
+                        snackbarMessage = ipWarning ?: "Live Trading Mode enabled. Real funds are now active."
                     )
                 }
             }.onFailure { err ->

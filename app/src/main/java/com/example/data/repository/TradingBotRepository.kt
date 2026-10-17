@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.UUID
 
@@ -73,6 +74,7 @@ interface TradingBotRepository {
     suspend fun switchExchangePlatform(platform: com.example.data.model.ExchangePlatform): Result<Unit>
     suspend fun configureLiveCredentials(apiKey: String, secretKey: String): Result<Unit>
     suspend fun resetPaperPortfolio(): Result<Unit>
+    suspend fun checkAndDetectIpChange(): String?
     fun hasLiveCredentials(): Boolean
     fun onAppForegrounded()
     fun onAppBackgrounded()
@@ -444,6 +446,9 @@ class TradingBotRepositoryImpl(
             }
         }
 
+        // Force balance sync on bot start so portfolio UI instantly updates with true wallet balance
+        syncPortfolioBalances()
+
         _botStatus.value = _botStatus.value.copy(
             state = BotState.RUNNING,
             lastErrorMessage = null,
@@ -578,6 +583,20 @@ class TradingBotRepositoryImpl(
         return getMarketDataClient().getAvailableSymbols()
     }
 
+    override suspend fun checkAndDetectIpChange(): String? = withContext(Dispatchers.IO) {
+        val currentIp = com.example.util.PublicIpChecker.getPublicIp() ?: return@withContext null
+        val lastIp = sharedPreferences?.getString("last_known_ip", null)
+
+        sharedPreferences?.edit()?.putString("last_known_ip", currentIp)?.apply()
+
+        if (!lastIp.isNullOrBlank() && !lastIp.equals(currentIp, ignoreCase = true)) {
+            val msg = "⚠️ IP Address Change Detected! Your current public IP has changed. Please update your Coins.ph API Whitelist if balance fails to load."
+            println("[TradingBotRepository] $msg")
+            return@withContext msg
+        }
+        null
+    }
+
     override suspend fun fetchLatestTicker(symbol: String): Result<MarketTicker> {
         val res = getMarketDataClient().getTicker(symbol)
         return res.map { it.copy(lastUpdated = System.currentTimeMillis()) }
@@ -590,7 +609,7 @@ class TradingBotRepositoryImpl(
         val currentPrice = if (_marketTicker.value != null && symbolsMatch(_marketTicker.value!!.symbol, position.symbol)) {
             _marketTicker.value!!.price
         } else {
-            fetchLatestTicker(position.symbol).getOrNull()?.price ?: position.currentPrice
+            position.currentPrice
         }
         val client = getActiveExchangeClient()
 
@@ -1059,10 +1078,14 @@ class TradingBotRepositoryImpl(
         balancesRes.onSuccess { balances ->
             val quoteCurr = _botSettings.value.quoteCurrency
             val baseCurr = _botSettings.value.baseCurrency
-            val quoteBal = balances.find { it.asset.equals(quoteCurr, ignoreCase = true) }?.free?.toDoubleOrNull()
-                ?: _portfolio.value.quoteBalance
-            val baseBal = balances.find { it.asset.equals(baseCurr, ignoreCase = true) }?.free?.toDoubleOrNull()
-                ?: _portfolio.value.baseBalance
+            val isLive = _botSettings.value.tradingMode == TradingMode.LIVE
+
+            val foundQuote = balances.find { it.asset.equals(quoteCurr, ignoreCase = true) }?.free?.toDoubleOrNull()
+            val quoteBal = foundQuote ?: if (isLive) 0.0 else _portfolio.value.quoteBalance
+
+            val foundBase = balances.find { it.asset.equals(baseCurr, ignoreCase = true) }?.free?.toDoubleOrNull()
+            val baseBal = foundBase ?: if (isLive) 0.0 else _portfolio.value.baseBalance
+
             val updatedPort = _portfolio.value.copy(
                 quoteBalance = quoteBal,
                 baseBalance = baseBal,
