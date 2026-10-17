@@ -574,4 +574,50 @@ class TradingBotRepositoryLifecycleTest {
         org.junit.Assert.assertNotNull("recommendedSettings should be populated", result.recommendedSettings)
         assertTrue(result.summary.contains("Optimal"))
     }
+
+    @Test
+    fun crossSymbolTickerUpdate_doesNotLeakPriceToExistingPositions() = runTest {
+        val fakeDao = FakeTradingDao()
+        val btcPosition = OpenPositionEntity(
+            id = "pos_btc_1",
+            symbol = "BTCPHP",
+            side = "BUY",
+            entryPrice = 5000000.0,
+            currentPrice = 5000000.0,
+            quantity = 0.001,
+            amountInvested = 5000.0,
+            unrealizedPnl = 0.0,
+            pnlPercentage = 0.0,
+            entryTimestamp = System.currentTimeMillis()
+        )
+        fakeDao.insertOpenPosition(btcPosition)
+
+        val client = PaperTradingExchangeClient(
+            apiService = fakeApiService,
+            initialPhpBalance = 50000.0,
+            initialUsdtBalance = 1000.0,
+            tradingDao = fakeDao
+        )
+        val repo = TradingBotRepositoryImpl(
+            paperExchangeClient = client,
+            liveExchangeClient = client,
+            tradingDao = fakeDao,
+            coroutineScope = backgroundScope
+        )
+
+        testScheduler.runCurrent()
+
+        // Switch symbol to USDTPHP (price ~62.92)
+        repo.switchSymbol("USDTPHP")
+        testScheduler.runCurrent()
+
+        val positions = repo.openPositionsFlow.first()
+        assertEquals(1, positions.size)
+        val pos = positions.first()
+
+        assertEquals("BTCPHP", pos.symbol)
+        assertEquals("BTCPHP position currentPrice should NOT adopt USDTPHP price", 5000000.0, pos.currentPrice, 0.01)
+        assertEquals("BTCPHP position unrealizedPnl should remain 0.0", 0.0, pos.unrealizedPnl, 0.01)
+        assertEquals("BTCPHP position pnlPercentage should remain 0.0", 0.0, pos.pnlPercentage, 0.01)
+    }
 }

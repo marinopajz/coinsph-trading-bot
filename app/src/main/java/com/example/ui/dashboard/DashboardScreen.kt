@@ -129,8 +129,16 @@ fun DashboardScreen(
 
     val isCabinModeActive = isBatteryIgnoring || uiState.botStatus.state == BotState.RUNNING
 
-    val totalQty = uiState.openPositions.sumOf { it.quantity }
-    val totalCost = uiState.openPositions.sumOf { it.amountInvested }
+    val activeSymbolPositions = remember(uiState.openPositions, uiState.botSettings.symbol) {
+        val cleanActiveSymbol = uiState.botSettings.symbol.replace("/", "").replace("_", "").replace("-", "")
+        uiState.openPositions.filter { pos ->
+            val cleanPosSymbol = pos.symbol.replace("/", "").replace("_", "").replace("-", "")
+            cleanPosSymbol.equals(cleanActiveSymbol, ignoreCase = true)
+        }
+    }
+
+    val totalQty = activeSymbolPositions.sumOf { it.quantity }
+    val totalCost = activeSymbolPositions.sumOf { it.amountInvested }
     val avgEntry = if (totalQty > 0.0 && totalCost > 0.0) totalCost / totalQty else null
     val tpPrice = if (avgEntry != null) avgEntry * (1.0 + (uiState.botSettings.takeProfitPercentage / 100.0)) else null
     val slPrice = if (avgEntry != null) avgEntry * (1.0 - (uiState.botSettings.stopLossPercentage / 100.0)) else null

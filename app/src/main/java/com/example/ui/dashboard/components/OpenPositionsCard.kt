@@ -77,6 +77,11 @@ fun OpenPositionsCard(
                 positions.forEach { pos ->
                     val isProfit = pos.unrealizedPnl >= 0
                     val pnlColor = if (isProfit) CoinsEmerald else LossRed
+                    val posQuote = when {
+                        pos.symbol.uppercase().endsWith("USDT") -> "USDT"
+                        pos.symbol.uppercase().endsWith("USDC") -> "USDC"
+                        else -> quoteCurrency
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -105,7 +110,7 @@ fun OpenPositionsCard(
                                         .padding(horizontal = 8.dp, vertical = 3.dp)
                                 ) {
                                     Text(
-                                        text = String.format(Locale.US, "%+.2f%% (%+,.2f %s)", pos.pnlPercentage, pos.unrealizedPnl, quoteCurrency),
+                                        text = String.format(Locale.US, "%+.2f%% (%+,.2f %s)", pos.pnlPercentage, pos.unrealizedPnl, posQuote),
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         fontFamily = FontFamily.Monospace,
@@ -175,14 +180,16 @@ fun OpenPositionsCard(
                                         fontSize = 10.sp,
                                         color = CoinsEmerald,
                                         fontFamily = FontFamily.Monospace,
-                                        maxLines = 1
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                     Text(
                                         text = String.format(Locale.US, "Need +%.2f%% to TP", remainingPct),
                                         fontSize = 10.sp,
                                         color = TextMuted,
                                         fontFamily = FontFamily.Monospace,
-                                        maxLines = 1
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                                 Box(

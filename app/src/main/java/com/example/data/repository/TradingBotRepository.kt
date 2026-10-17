@@ -315,10 +315,26 @@ class TradingBotRepositoryImpl(
                             _candles.value = currentCandles
                         }
 
-                        // Update unrealized PnL of open positions
-                        updateOpenPositionsPnl(ticker.price)
+                        // Update unrealized PnL of open positions matching this ticker's symbol
+                        updateOpenPositionsPnl(ticker.symbol, ticker.price)
                     }.onFailure { err ->
                         println("DEBUG getTicker failure: ${err.message}")
+                    }
+
+                    // Also fetch/update open positions that belong to a different symbol than active symbol
+                    val openPositions = _openPositions.value
+                    if (openPositions.isNotEmpty()) {
+                        val otherSymbols = openPositions
+                            .map { it.symbol }
+                            .filter { posSymbol -> !symbolsMatch(posSymbol, symbol) }
+                            .distinct()
+
+                        for (otherSymbol in otherSymbols) {
+                            val otherRes = client.getTicker(otherSymbol)
+                            otherRes.onSuccess { otherTicker ->
+                                updateOpenPositionsPnl(otherTicker.symbol, otherTicker.price)
+                            }
+                        }
                     }
                     
                     val orderBookRes = client.getOrderBook(symbol, 5)
@@ -571,7 +587,11 @@ class TradingBotRepositoryImpl(
         val position = _openPositions.value.firstOrNull { it.id == positionId }
             ?: return Result.failure(IllegalArgumentException("Position not found"))
 
-        val currentPrice = _marketTicker.value?.price ?: position.currentPrice
+        val currentPrice = if (_marketTicker.value != null && symbolsMatch(_marketTicker.value!!.symbol, position.symbol)) {
+            _marketTicker.value!!.price
+        } else {
+            fetchLatestTicker(position.symbol).getOrNull()?.price ?: position.currentPrice
+        }
         val client = getActiveExchangeClient()
 
         val orderRes = client.submitOrder(
@@ -938,7 +958,13 @@ class TradingBotRepositoryImpl(
         }
     }
 
-    private fun updateOpenPositionsPnl(currentPrice: Double) {
+    private fun symbolsMatch(s1: String, s2: String): Boolean {
+        val clean1 = s1.replace("/", "").replace("_", "").replace("-", "")
+        val clean2 = s2.replace("/", "").replace("_", "").replace("-", "")
+        return clean1.equals(clean2, ignoreCase = true)
+    }
+
+    private fun updateOpenPositionsPnl(tickerSymbol: String, currentPrice: Double) {
         val positions = _openPositions.value
         val settings = _botSettings.value
         if (positions.isEmpty()) {
@@ -950,6 +976,11 @@ class TradingBotRepositoryImpl(
 
         val updated = mutableListOf<OpenPosition>()
         for (pos in positions) {
+            if (!symbolsMatch(tickerSymbol, pos.symbol)) {
+                updated.add(pos)
+                continue
+            }
+
             val pnl = (currentPrice - pos.entryPrice) * pos.quantity
             val pct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100.0
             
@@ -1010,7 +1041,8 @@ class TradingBotRepositoryImpl(
             val totalCost = updated.sumOf { it.amountInvested }
             if (totalQty > 0.0 && totalCost > 0.0) {
                 val avgEntry = totalCost / totalQty
-                val profitPct = ((currentPrice - avgEntry) / avgEntry) * 100.0
+                val activePosPrice = updated.firstOrNull { symbolsMatch(it.symbol, settings.symbol) }?.currentPrice ?: currentPrice
+                val profitPct = ((activePosPrice - avgEntry) / avgEntry) * 100.0
                 if (profitPct >= settings.takeProfitPercentage) {
                     val newPeak = maxOf(settings.peakPrice, currentPrice)
                     if (newPeak != settings.peakPrice) {
